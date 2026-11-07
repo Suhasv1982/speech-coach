@@ -3,7 +3,7 @@
 Speech coach project. Repo: https://github.com/Suhasv1982/speech-coach
 
 ## Environment
-- Python 3.11, virtual environment in `.venv/` (not committed)
+- Python 3.11 locally, virtual environment in `.venv/` (not committed); Community Cloud runs 3.14
 - Activate: `.\.venv\Scripts\Activate.ps1` (Windows) or `source .venv/bin/activate` (Mac)
 
 ## Commands (with .venv active)
@@ -20,10 +20,11 @@ Speech coach project. Repo: https://github.com/Suhasv1982/speech-coach
   Deploy steps are in README.md.
 
 ## Dependencies
-- Python 3.11 only (the app stops with a message on other versions).
-- `requirements.txt` pins every runtime package, transitive ones included, to the versions
-  in the working `.venv` (av 19 breaks faster-whisper 1.2.1). Upgrade deliberately and run
-  `tests/test_pinned_stack.py`. `pyproject.toml` holds tool config only (no `[project]`).
+- Python 3.11 and 3.14 are both supported; CI tests both. Don't add version checks.
+- `requirements.txt` pins every runtime package, transitive ones included, to versions with
+  wheels for both 3.11 and 3.14. Keep av < 19 (av 19 breaks faster-whisper 1.2.1). Upgrade
+  deliberately and run `tests/test_pinned_stack.py` on both versions (`uv venv --python 3.14`).
+  `pyproject.toml` holds tool config only (no `[project]`).
 - The real-model test needs `tiny.en` cached once:
   `python -c "from faster_whisper import download_model; download_model('tiny.en')"`
 

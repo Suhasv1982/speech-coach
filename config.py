@@ -8,7 +8,6 @@ startup_report() says only where each one came from.
 import os
 import platform
 import shutil
-import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -17,7 +16,6 @@ from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
 COMMUNITY_CLOUD_ROOT = "/mount/src/"
-REQUIRED_PYTHON = (3, 11)
 
 load_dotenv(ROOT / ".env")
 
@@ -57,21 +55,6 @@ def _secrets() -> Mapping[str, Any]:
 def on_community_cloud() -> bool:
     """True when running on Streamlit Community Cloud, which serves apps from /mount/src."""
     return ROOT.as_posix().startswith(COMMUNITY_CLOUD_ROOT)
-
-
-def python_version_error(version: tuple[int, ...] | None = None) -> str | None:
-    """Return a clear message if Python is not the supported version, else None."""
-    major_minor = tuple((version or sys.version_info)[:2])
-    if major_minor == REQUIRED_PYTHON:
-        return None
-    wanted = ".".join(map(str, REQUIRED_PYTHON))
-    found = ".".join(map(str, major_minor))
-    return (
-        f"Speech Coach needs Python {wanted}, but this is Python {found}. "
-        f"On Streamlit Community Cloud the Python version can't be changed for an existing "
-        f"app: delete the app and deploy it again, choosing Python {wanted} under "
-        f"Advanced settings. Locally, recreate .venv with Python {wanted}."
-    )
 
 
 def _lookup(name: str) -> tuple[str | None, str]:
