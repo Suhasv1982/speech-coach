@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     original_path TEXT NOT NULL,
     wav_path      TEXT NOT NULL,
     duration_s    REAL,
+    transcript    TEXT,
     recorded_at   TEXT NOT NULL,
     UNIQUE (session_id, task_id)
 );
@@ -50,7 +51,16 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.executescript(SCHEMA)
+    _upgrade(conn)
     return conn
+
+
+def _upgrade(conn: sqlite3.Connection) -> None:
+    """Add columns introduced after a database was first created."""
+    columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
+    if "transcript" not in columns:
+        with conn:
+            conn.execute("ALTER TABLE tasks ADD COLUMN transcript TEXT")
 
 
 def new_session_id() -> str:
@@ -72,22 +82,57 @@ def record_task(
     original_path: Path,
     wav_path: Path,
     duration_s: float | None,
+    transcript: str | None = None,
 ) -> None:
     """Store a recorded task, replacing any earlier take of the same task in this session."""
     with conn:
         conn.execute(
             """
-            INSERT INTO tasks
-                (session_id, task_id, source, original_path, wav_path, duration_s, recorded_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO tasks (
+                session_id, task_id, source, original_path, wav_path, duration_s,
+                transcript, recorded_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (session_id, task_id) DO UPDATE SET
                 source = excluded.source,
                 original_path = excluded.original_path,
                 wav_path = excluded.wav_path,
                 duration_s = excluded.duration_s,
+                transcript = excluded.transcript,
                 recorded_at = excluded.recorded_at
             """,
-            (session_id, task_id, source, str(original_path), str(wav_path), duration_s, _now()),
+            (
+                session_id,
+                task_id,
+                source,
+                str(original_path),
+                str(wav_path),
+                duration_s,
+                transcript,
+                _now(),
+            ),
+        )
+
+
+def replace_metrics(
+    conn: sqlite3.Connection,
+    session_id: str,
+    task_id: str,
+    metrics: dict[str, tuple[float, str | None]],
+) -> None:
+    """Replace all metrics for one task with {name: (value, unit)}."""
+    now = _now()
+    with conn:
+        conn.execute(
+            "DELETE FROM metrics WHERE session_id = ? AND task_id = ?", (session_id, task_id)
+        )
+        conn.executemany(
+            "INSERT INTO metrics (session_id, task_id, name, value, unit, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                (session_id, task_id, name, value, unit, now)
+                for name, (value, unit) in metrics.items()
+            ],
         )
 
 

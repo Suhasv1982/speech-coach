@@ -8,6 +8,13 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        cloud_mode: ["false", "true"]
+    name: lint-and-test (CLOUD_MODE=${{ matrix.cloud_mode }})
+    env:
+      CLOUD_MODE: ${{ matrix.cloud_mode }}
     steps:
       - uses: actions/checkout@v4
 

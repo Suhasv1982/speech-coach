@@ -10,6 +10,7 @@ __pycache__/
 
 # Environment / secrets
 .env
+.streamlit/secrets.toml
 
 # App data (personal recordings, reports, database)
 recordings/
