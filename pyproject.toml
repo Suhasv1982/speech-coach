@@ -1,7 +1,6 @@
-[project]
-name = "speech-coach"
-version = "0.1.0"
-requires-python = ">=3.11"
+# Tool configuration only. Dependencies live in requirements.txt (runtime, used by
+# Streamlit Community Cloud) and requirements-dev.txt. There is deliberately no
+# [project] table, so Community Cloud doesn't treat this file as a second dependency file.
 
 [tool.ruff]
 line-length = 100
@@ -13,3 +12,6 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "real_model: runs a real faster-whisper model from the local cache (no download)",
+]

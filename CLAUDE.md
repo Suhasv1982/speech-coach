@@ -16,7 +16,16 @@ Speech coach project. Repo: https://github.com/Suhasv1982/speech-coach
 - Local (default): `medium.en` model, files in `recordings/`, SQLite, reports in `reports/`
 - Cloud (`CLOUD_MODE=true`, for Streamlit Community Cloud): `small.en`/int8, temp files deleted
   after each analysis, no SQLite, results only in `st.session_state` plus downloads.
+  Auto-on when the app runs from `/mount/src` (Community Cloud); secrets/env override.
   Deploy steps are in README.md.
+
+## Dependencies
+- Python 3.11 only (the app stops with a message on other versions).
+- `requirements.txt` pins every runtime package, transitive ones included, to the versions
+  in the working `.venv` (av 19 breaks faster-whisper 1.2.1). Upgrade deliberately and run
+  `tests/test_pinned_stack.py`. `pyproject.toml` holds tool config only (no `[project]`).
+- The real-model test needs `tiny.en` cached once:
+  `python -c "from faster_whisper import download_model; download_model('tiny.en')"`
 
 ## Modules
 - `config.py` – settings: `st.secrets`, then env/`.env`, then defaults (`get_setting`, `cloud_mode()`,

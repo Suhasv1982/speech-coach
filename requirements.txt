@@ -1,5 +1,63 @@
+# Runtime dependencies for Speech Coach (local and Streamlit Community Cloud).
+# Every package is pinned to the exact version in the working local .venv, including
+# transitive ones, so the cloud installs the same stack (e.g. av 19 breaks
+# faster-whisper 1.2.1). Target: Python 3.11. Dev tools live in requirements-dev.txt.
+# To upgrade: change versions here, `pip install -r requirements-dev.txt`, run pytest.
+
+# --- Direct dependencies ---
 streamlit==1.67.0
 python-dotenv==1.2.4
 PyYAML==6.0.3
 imageio-ffmpeg==0.8.1
 faster-whisper==1.2.1
+
+# --- Speech stack (faster-whisper) ---
+av==18.1.0
+ctranslate2==4.8.5
+onnxruntime==1.31.1
+tokenizers==0.23.3
+huggingface_hub==2.4.0
+hf-xet==1.8.0
+numpy==2.4.6
+flatbuffers==25.12.19
+protobuf==7.36.2
+filelock==4.2.9
+fsspec==2026.9.0
+tqdm==4.70.1
+colorama==0.4.6; sys_platform == "win32"
+
+# --- Streamlit and shared transitive dependencies ---
+altair==6.3.0
+anyio==4.16.0
+attrs==26.1.0
+certifi==2026.10.23
+charset-normalizer==3.5.2
+click==8.5.1
+h11==0.16.0
+httpcore2==2.16.0
+httpx2==2.16.0
+idna==3.20
+itsdangerous==2.2.0
+Jinja2==3.1.6
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+MarkupSafe==3.0.4
+narwhals==2.28.0
+packaging==26.3
+pandas==3.1.1
+pillow==13.0.0
+pyarrow==26.0.1
+pydeck==0.9.3
+python-dateutil==4.0.0
+python-multipart==0.0.33
+referencing==0.37.0
+requests==2.34.2
+rpds-py==2026.9.1
+starlette==1.10.0
+truststore==0.10.5
+typing_extensions==4.16.0
+tzdata==2026.6
+urllib3==2.8.0
+uvicorn==0.54.0
+watchdog==7.1.0
+websockets==17.4

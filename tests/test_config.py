@@ -1,3 +1,5 @@
+from pathlib import PurePosixPath
+
 import imageio_ffmpeg
 import pytest
 import streamlit as st
@@ -6,6 +8,7 @@ import config
 
 SENTINEL = "s3cr3t-value-must-not-leak"
 REAL_SECRETS_READER = config._secrets  # captured before conftest stubs it per test
+REAL_READ_SECRETS = config._read_secrets
 
 
 @pytest.fixture
@@ -88,6 +91,99 @@ def test_settings_summary_shows_sources_never_values(secrets, monkeypatch):
     assert SENTINEL not in summary
     assert "WHISPER_MODEL=secrets" in summary
     assert "FFMPEG_PATH=env" in summary
+
+
+@pytest.fixture
+def on_cloud(monkeypatch):
+    """Pretend the app runs from Community Cloud's /mount/src folder."""
+    monkeypatch.setattr(config, "ROOT", PurePosixPath("/mount/src/speech-coach"))
+    monkeypatch.delenv("CLOUD_MODE", raising=False)
+
+
+def test_community_cloud_detected_from_mount_src(on_cloud):
+    assert config.on_community_cloud() is True
+
+
+def test_not_detected_elsewhere(monkeypatch):
+    for root in ("/home/runner/work/speech-coach", "/mount/srcfoo/app", "C:/speech-coach"):
+        monkeypatch.setattr(config, "ROOT", PurePosixPath(root))
+        assert config.on_community_cloud() is False, root
+
+
+def test_community_cloud_defaults_to_cloud_mode_and_small_model(on_cloud, secrets):
+    assert config.cloud_mode() is True
+    assert config.whisper_settings() == ("small.en", "int8")
+
+
+def test_secret_can_turn_cloud_mode_off_on_community_cloud(on_cloud, secrets):
+    secrets["CLOUD_MODE"] = False  # TOML boolean, as pasted into the Secrets box
+    assert config.cloud_mode() is False
+    assert config.whisper_settings() == ("medium.en", "auto")
+
+
+def test_toml_boolean_true_secret_turns_cloud_mode_on(secrets, monkeypatch):
+    monkeypatch.delenv("CLOUD_MODE", raising=False)
+    secrets["CLOUD_MODE"] = True  # `CLOUD_MODE = true` without quotes
+    assert config.cloud_mode() is True
+
+
+def test_env_overrides_detection_on_community_cloud(on_cloud, monkeypatch):
+    monkeypatch.setenv("WHISPER_MODEL", "base.en")
+    assert config.whisper_settings() == ("base.en", "int8")
+
+
+def test_local_run_defaults_to_local_mode(secrets, monkeypatch):
+    monkeypatch.delenv("CLOUD_MODE", raising=False)
+    monkeypatch.setattr(config, "ROOT", PurePosixPath("C:/speech-coach"))
+    assert config.cloud_mode() is False
+
+
+def test_startup_report_logs_detection_and_no_values(on_cloud, secrets, monkeypatch):
+    secrets["WHISPER_MODEL"] = SENTINEL
+    monkeypatch.setattr(config, "_read_secrets", lambda: (secrets, "loaded (1 keys)"))
+    report = config.startup_report()
+    assert "Community Cloud detected: True" in report
+    assert "cloud mode: True" in report
+    assert "secrets: loaded (1 keys)" in report
+    assert SENTINEL not in report
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (FileNotFoundError("No secrets found. Valid paths ..."), "no secrets file"),
+        (FileNotFoundError("Error parsing secrets file at /x: bad"), "unreadable"),
+    ],
+)
+def test_secrets_status_distinguishes_missing_from_broken(monkeypatch, error, status):
+    class BrokenSecrets:
+        def keys(self):
+            raise error
+
+        def __iter__(self):
+            raise error
+
+    monkeypatch.setattr(st, "secrets", BrokenSecrets())
+    secrets, message = REAL_READ_SECRETS()
+    assert secrets == {}
+    assert message.startswith(status)
+    assert "/x" not in message
+
+
+@pytest.mark.parametrize("version", [(3, 11, 9), (3, 11, 0)])
+def test_python_311_is_accepted(version):
+    assert config.python_version_error(version) is None
+
+
+@pytest.mark.parametrize("version", [(3, 14, 0), (3, 12, 1), (3, 10, 4)])
+def test_other_python_versions_get_a_clear_message(version):
+    message = config.python_version_error(version)
+    assert f"needs Python 3.11, but this is Python {version[0]}.{version[1]}" in message
+    assert "delete the app and deploy it again" in message
+
+
+def test_this_interpreter_is_supported():
+    assert config.python_version_error() is None
 
 
 def test_ffmpeg_path_setting_wins(monkeypatch):

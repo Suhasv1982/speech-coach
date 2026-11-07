@@ -1,10 +1,14 @@
 """Project settings: Streamlit secrets first, then environment variables / .env, then defaults.
 
-Setting values are never logged; settings_summary() reports only where each one came from.
+On Streamlit Community Cloud (detected by the app running from /mount/src) the defaults
+switch to cloud mode; secrets and env still override. Setting values are never logged;
+startup_report() says only where each one came from.
 """
 
 import os
+import platform
 import shutil
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -12,6 +16,8 @@ from typing import Any
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).resolve().parent
+COMMUNITY_CLOUD_ROOT = "/mount/src/"
+REQUIRED_PYTHON = (3, 11)
 
 load_dotenv(ROOT / ".env")
 
@@ -29,14 +35,43 @@ CLOUD_WHISPER = ("small.en", "int8")
 LOCAL_WHISPER = ("medium.en", "auto")
 
 
-def _secrets() -> Mapping[str, Any]:
-    """Return st.secrets as a mapping, or {} when there is no secrets file."""
+def _read_secrets() -> tuple[Mapping[str, Any], str]:
+    """Return (st.secrets as a dict, status). Status never includes secret values."""
     try:
         import streamlit as st
 
-        return dict(st.secrets)
-    except Exception:  # no secrets.toml, or parse error: fall back to env
-        return {}
+        secrets = dict(st.secrets)
+    except Exception as err:
+        # Streamlit uses one error class for "no file" and "file could not be parsed".
+        if str(err).startswith("No secrets found"):
+            return {}, "no secrets file"
+        return {}, f"unreadable ({type(err).__name__}); check the TOML syntax"
+    return secrets, f"loaded ({len(secrets)} keys)"
+
+
+def _secrets() -> Mapping[str, Any]:
+    """Return st.secrets as a mapping, or {} when there is none (then env is used)."""
+    return _read_secrets()[0]
+
+
+def on_community_cloud() -> bool:
+    """True when running on Streamlit Community Cloud, which serves apps from /mount/src."""
+    return ROOT.as_posix().startswith(COMMUNITY_CLOUD_ROOT)
+
+
+def python_version_error(version: tuple[int, ...] | None = None) -> str | None:
+    """Return a clear message if Python is not the supported version, else None."""
+    major_minor = tuple((version or sys.version_info)[:2])
+    if major_minor == REQUIRED_PYTHON:
+        return None
+    wanted = ".".join(map(str, REQUIRED_PYTHON))
+    found = ".".join(map(str, major_minor))
+    return (
+        f"Speech Coach needs Python {wanted}, but this is Python {found}. "
+        f"On Streamlit Community Cloud the Python version can't be changed for an existing "
+        f"app: delete the app and deploy it again, choosing Python {wanted} under "
+        f"Advanced settings. Locally, recreate .venv with Python {wanted}."
+    )
 
 
 def _lookup(name: str) -> tuple[str | None, str]:
@@ -62,7 +97,8 @@ def get_bool(name: str, default: bool = False) -> bool:
 
 
 def cloud_mode() -> bool:
-    return get_bool("CLOUD_MODE")
+    """CLOUD_MODE from secrets/env; defaults to on when Community Cloud is detected."""
+    return get_bool("CLOUD_MODE", default=on_community_cloud())
 
 
 def whisper_settings() -> tuple[str, str]:
@@ -77,6 +113,15 @@ def whisper_settings() -> tuple[str, str]:
 def settings_summary() -> str:
     """Describe where each setting comes from, without revealing any value."""
     return ", ".join(f"{name}={_lookup(name)[1]}" for name in SETTING_NAMES)
+
+
+def startup_report() -> str:
+    """One log line for startup: environment detection and setting sources, no values."""
+    return (
+        f"Community Cloud detected: {on_community_cloud()} (app root {ROOT.as_posix()}); "
+        f"cloud mode: {cloud_mode()}; Python {platform.python_version()}; "
+        f"secrets: {_read_secrets()[1]}; sources: {settings_summary()}"
+    )
 
 
 def _path_setting(name: str, default: str) -> Path:

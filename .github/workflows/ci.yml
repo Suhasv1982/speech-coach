@@ -15,6 +15,8 @@ jobs:
     name: lint-and-test (CLOUD_MODE=${{ matrix.cloud_mode }})
     env:
       CLOUD_MODE: ${{ matrix.cloud_mode }}
+      # Fail (not skip) if the real-model test can't find its cached model.
+      REQUIRE_REAL_MODEL: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -32,6 +34,17 @@ jobs:
 
       - name: Ruff format
         run: ruff format --check .
+
+      - name: Cache Whisper test model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface/hub/models--Systran--faster-whisper-tiny.en
+          key: whisper-tiny.en-v1
+
+      # Downloaded here, outside pytest: the tests block network access and load
+      # the model with local_files_only.
+      - name: Download Whisper test model
+        run: python -c "from faster_whisper import download_model; download_model('tiny.en')"
 
       - name: Pytest
         run: pytest -q
