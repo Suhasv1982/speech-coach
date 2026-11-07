@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Speech Coach",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "streamlit",
+      "args": ["run", "app.py", "--server.maxUploadSize", "1024"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "osx": { "python": "${workspaceFolder}/.venv/bin/python" },
+      "linux": { "python": "${workspaceFolder}/.venv/bin/python" },
+      "justMyCode": true
+    }
+  ]
+}

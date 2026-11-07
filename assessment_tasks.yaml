@@ -1,0 +1,92 @@
+# Assessment tasks, shown in this order.
+# type: scripted (read the reference_text) or spontaneous (answer freely).
+# time_limit_s: countdown length in seconds.
+# reveal_on_start: hide the prompt until the speaker clicks Start.
+
+tasks:
+  - id: read_aloud
+    title: Read aloud
+    type: scripted
+    time_limit_s: 90
+    instructions: >-
+      Read the paragraph below aloud at a natural, confident pace, as if
+      presenting to a leadership team.
+    reference_text: >-
+      Our proposal is to invest in a unified data platform that consolidates the
+      company's fragmented reporting systems into a single, governed environment.
+      Today, finance, operations, and sales each maintain separate databases, which
+      creates conflicting numbers, slow month-end reporting, and significant manual
+      reconciliation. Analysts spend nearly forty percent of their time preparing
+      data rather than analyzing it. The new platform would provide one trusted
+      source of truth, with clear data lineage and automated quality checks, so
+      leaders can make decisions with confidence. It would also reduce our
+      infrastructure costs by retiring three legacy systems and their associated
+      licenses. We expect to recover the initial investment within eighteen months
+      through lower operating costs and faster delivery of insights. Beyond
+      savings, the platform positions us to adopt machine learning responsibly and
+      to meet growing regulatory requirements. I recommend we approve the first
+      phase this quarter and measure results against agreed business outcomes.
+
+  - id: word_list
+    title: Word list
+    type: scripted
+    time_limit_s: 90
+    instructions: >-
+      Read each word clearly, one at a time, with a short pause between words.
+    reference_text: |-
+      architecture
+      analytics
+      governance
+      infrastructure
+      strategic
+      migration
+      compliance
+      lineage
+      Databricks
+      Azure
+      catalog
+      pipeline
+      development
+      executive
+      initiative
+      capability
+      technology
+      organization
+      determine
+      competitive
+      regulatory
+      enterprise
+      revenue
+      priority
+      framework
+      category
+      data
+      schedule
+      process
+      focus
+
+  - id: introduction
+    title: Introduction
+    type: spontaneous
+    time_limit_s: 90
+    instructions: >-
+      You are in an executive interview. Answer: "Tell me about yourself."
+
+  - id: executive_question
+    title: Executive question
+    type: spontaneous
+    time_limit_s: 120
+    reveal_on_start: true
+    instructions: >-
+      You will see a question from a senior executive when you click Start.
+      Answer it immediately, without preparation.
+    prompt: >-
+      How would you justify a $2 million data platform investment to the CFO?
+
+  - id: project_story
+    title: Project story
+    type: spontaneous
+    time_limit_s: 180
+    instructions: >-
+      Describe your biggest transformation program and its business impact:
+      the situation, what you did, and the measurable results.

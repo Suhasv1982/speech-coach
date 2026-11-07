@@ -1,0 +1,7 @@
+[server]
+# Enough for a 3-minute phone video at 720p. Uploads are held in memory, so keep this
+# well under Community Cloud's ~1 GB guaranteed memory. Local F5 runs raise it to 1024.
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
