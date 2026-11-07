@@ -51,15 +51,19 @@ which is why cloud mode keeps nothing on disk.
    - Main file path: `app.py`
    - App URL: choose a subdomain, for example `speech-coach-practice`
 4. **Open Advanced settings** (on the same form):
-   - Python version: **3.11**
-   - Secrets: paste the following (see `.streamlit/secrets.example.toml`):
+   - Python version: **3.11**. This is required, and it **can't be changed later**
+     without deleting and redeploying the app. On any other version the app stops with a
+     message saying so.
+   - Secrets: optional. The app detects Community Cloud (it runs from `/mount/src`) and
+     then defaults to cloud mode with `small.en` / `int8`. Secrets override these, for
+     example (see `.streamlit/secrets.example.toml`):
      ```toml
-     CLOUD_MODE = "true"
+     CLOUD_MODE = true
+     WHISPER_MODEL = "small.en"
      ```
-     Optionally add `WHISPER_MODEL = "small.en"` and `WHISPER_COMPUTE_TYPE = "int8"`
-     (these are already the cloud defaults).
 5. **Click Deploy.** The first build installs `requirements.txt` and takes a few minutes.
-   No `packages.txt` is needed: ffmpeg comes from the `imageio-ffmpeg` package.
+   Every package is pinned to an exact version, so the cloud gets the same tested stack
+   as local. No `packages.txt` is needed: ffmpeg comes from the `imageio-ffmpeg` package.
 6. **First use.** The first analysis downloads the speech model and shows
    "Loading speech model, about a minute on first use". After a restart or after the app
    wakes from sleep, the model downloads again.
@@ -69,6 +73,22 @@ which is why cloud mode keeps nothing on disk.
 **Later changes.** Pushing to `main` redeploys automatically. Change secrets under the
 app's **⋮ → Settings → Secrets**; the app restarts with the new values. To wake a
 sleeping app, open its URL and click **Yes, get this app back up!**.
+
+**Check the log.** Open **Manage app** (bottom right of the app) to see the log. At
+startup the app writes one line like:
+
+```
+Speech Coach startup: Community Cloud detected: True (app root /mount/src/speech-coach);
+cloud mode: True; Python 3.11.x; secrets: loaded (2 keys); sources: CLOUD_MODE=secrets, ...
+```
+
+`secrets: no secrets file` means nothing was saved under Secrets, and
+`secrets: unreadable (...)` means the TOML has a syntax error. Values are never logged.
+
+**Upgrading packages.** Change the pins in `requirements.txt`, run
+`pip install -r requirements-dev.txt` locally, and run `pytest`. `tests/test_pinned_stack.py`
+checks that what's installed matches the pins and that faster-whisper still decodes and
+transcribes audio with them.
 
 **Uploads.** The upload limit is 200 MB. A 3-minute phone video at 1080p can be larger,
 so record at 720p or use an audio-only recording for the cloud app.

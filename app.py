@@ -22,6 +22,11 @@ st.set_page_config(page_title="Speech Coach", page_icon="🎙️")
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("speech_coach")
 
+if python_error := config.python_version_error():
+    log.error(python_error)
+    st.error(python_error)
+    st.stop()
+
 TASKS = load_tasks()
 SUMMARY_PAGE = len(TASKS) + 1
 CLOUD = config.cloud_mode()
@@ -32,7 +37,7 @@ CLOUD_BANNER = (
 
 @st.cache_resource
 def log_settings_once() -> None:
-    log.info("Speech Coach settings sources: %s", config.settings_summary())
+    log.info("Speech Coach startup: %s", config.startup_report())
 
 
 @st.cache_resource(show_spinner="Loading speech model, about a minute on first use…")
