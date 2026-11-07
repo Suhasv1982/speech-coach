@@ -48,6 +48,13 @@ def test_installed_versions_match_requirements():
     assert not mismatches, "Run `pip install -r requirements-dev.txt`:\n" + "\n".join(mismatches)
 
 
+def test_av_pin_is_compatible_with_faster_whisper():
+    """faster-whisper 1.2.1 passes metadata_errors= to av.open(), which av 19 removed."""
+    pins = {req.name.lower(): next(iter(req.specifier)).version for req in pinned_requirements()}
+    if pins["faster-whisper"] == "1.2.1":
+        assert int(pins["av"].split(".")[0]) < 19, "av 19+ breaks faster-whisper 1.2.1"
+
+
 def test_faster_whisper_decodes_sample_wav_with_pinned_av(sample_wav):
     """This is the exact call that crashed with av 19 (unexpected 'metadata_errors')."""
     from faster_whisper import decode_audio

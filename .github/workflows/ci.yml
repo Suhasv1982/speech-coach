@@ -11,18 +11,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # 3.11 = local development, 3.14 = Streamlit Community Cloud
+        python: ["3.11", "3.14"]
         cloud_mode: ["false", "true"]
-    name: lint-and-test (CLOUD_MODE=${{ matrix.cloud_mode }})
+    name: test (Python ${{ matrix.python }}, CLOUD_MODE=${{ matrix.cloud_mode }})
     env:
       CLOUD_MODE: ${{ matrix.cloud_mode }}
-      # Fail (not skip) if the real-model test can't find its cached model.
+      # Fail (not skip) if the real tiny.en transcription test can't find its cached model.
       REQUIRE_REAL_MODEL: "1"
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: requirements*.txt
 
@@ -46,5 +48,5 @@ jobs:
       - name: Download Whisper test model
         run: python -c "from faster_whisper import download_model; download_model('tiny.en')"
 
-      - name: Pytest
-        run: pytest -q
+      - name: Pytest (includes real tiny.en transcription of the sample WAV)
+        run: pytest -q -rs

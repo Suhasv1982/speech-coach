@@ -22,11 +22,6 @@ st.set_page_config(page_title="Speech Coach", page_icon="🎙️")
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("speech_coach")
 
-if python_error := config.python_version_error():
-    log.error(python_error)
-    st.error(python_error)
-    st.stop()
-
 TASKS = load_tasks()
 SUMMARY_PAGE = len(TASKS) + 1
 CLOUD = config.cloud_mode()

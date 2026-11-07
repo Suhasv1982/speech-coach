@@ -1,8 +1,12 @@
 # Runtime dependencies for Speech Coach (local and Streamlit Community Cloud).
-# Every package is pinned to the exact version in the working local .venv, including
-# transitive ones, so the cloud installs the same stack (e.g. av 19 breaks
-# faster-whisper 1.2.1). Target: Python 3.11. Dev tools live in requirements-dev.txt.
-# To upgrade: change versions here, `pip install -r requirements-dev.txt`, run pytest.
+# Every package is pinned to an exact version, including transitive ones, so the cloud
+# installs the same stack that is tested locally and in CI.
+# Supported: Python 3.11 (local) and 3.14 (Community Cloud). Every pin has wheels for both;
+# av, tokenizers are abi3 wheels, the rest ship cp311 and cp314 wheels.
+# Keep av below 19: faster-whisper 1.2.1 asks for av>=11 with no upper bound, but av 19
+# removed the `metadata_errors` argument it passes to av.open().
+# Dev tools live in requirements-dev.txt.
+# To upgrade: change versions here, run pytest on 3.11 and 3.14 (CI does both).
 
 # --- Direct dependencies ---
 streamlit==1.67.0

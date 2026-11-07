@@ -36,6 +36,19 @@ the `--server.maxUploadSize 1024` flag raises it for local runs.
 
 Lint and test: `ruff check .`, `ruff format --check .`, `pytest`.
 
+Supported Python versions: 3.11 and 3.14. To test on 3.14 locally with
+[uv](https://docs.astral.sh/uv/):
+
+```bash
+uv python install 3.14
+uv venv --python 3.14 .venv314
+uv pip install --python .venv314/Scripts/python.exe -r requirements-dev.txt   # Mac/Linux: .venv314/bin/python
+.venv314/Scripts/python.exe -m pytest
+```
+
+The real-transcription test needs the `tiny.en` model cached once:
+`python -c "from faster_whisper import download_model; download_model('tiny.en')"`.
+
 ## Deploy to Streamlit Community Cloud
 
 The free tier gives about 1 GB of guaranteed memory (up to about 2.7 GB) and 2 CPU cores.
@@ -50,20 +63,18 @@ which is why cloud mode keeps nothing on disk.
    - Branch: `main`
    - Main file path: `app.py`
    - App URL: choose a subdomain, for example `speech-coach-practice`
-4. **Open Advanced settings** (on the same form):
-   - Python version: **3.11**. This is required, and it **can't be changed later**
-     without deleting and redeploying the app. On any other version the app stops with a
-     message saying so.
-   - Secrets: optional. The app detects Community Cloud (it runs from `/mount/src`) and
-     then defaults to cloud mode with `small.en` / `int8`. Secrets override these, for
-     example (see `.streamlit/secrets.example.toml`):
-     ```toml
-     CLOUD_MODE = true
-     WHISPER_MODEL = "small.en"
-     ```
+4. **Leave Advanced settings alone.** No secrets and no Python choice are needed:
+   - The app detects Community Cloud (it runs from `/mount/src`) and then defaults to
+     cloud mode with `small.en` / `int8`.
+   - Python 3.14 (the cloud default) and 3.11 (local) are both supported and tested in CI.
+
+   Secrets are only for overrides, for example (see `.streamlit/secrets.example.toml`):
+   ```toml
+   WHISPER_MODEL = "base.en"
+   ```
 5. **Click Deploy.** The first build installs `requirements.txt` and takes a few minutes.
    Every package is pinned to an exact version, so the cloud gets the same tested stack
-   as local. No `packages.txt` is needed: ffmpeg comes from the `imageio-ffmpeg` package.
+   as CI. No `packages.txt` is needed: ffmpeg comes from the `imageio-ffmpeg` package.
 6. **First use.** The first analysis downloads the speech model and shows
    "Loading speech model, about a minute on first use". After a restart or after the app
    wakes from sleep, the model downloads again.
@@ -79,7 +90,7 @@ startup the app writes one line like:
 
 ```
 Speech Coach startup: Community Cloud detected: True (app root /mount/src/speech-coach);
-cloud mode: True; Python 3.11.x; secrets: loaded (2 keys); sources: CLOUD_MODE=secrets, ...
+cloud mode: True; Python 3.14.x; secrets: no secrets file; sources: CLOUD_MODE=default, ...
 ```
 
 `secrets: no secrets file` means nothing was saved under Secrets, and

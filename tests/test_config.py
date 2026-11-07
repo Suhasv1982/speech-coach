@@ -1,3 +1,4 @@
+import platform
 from pathlib import PurePosixPath
 
 import imageio_ffmpeg
@@ -170,20 +171,8 @@ def test_secrets_status_distinguishes_missing_from_broken(monkeypatch, error, st
     assert "/x" not in message
 
 
-@pytest.mark.parametrize("version", [(3, 11, 9), (3, 11, 0)])
-def test_python_311_is_accepted(version):
-    assert config.python_version_error(version) is None
-
-
-@pytest.mark.parametrize("version", [(3, 14, 0), (3, 12, 1), (3, 10, 4)])
-def test_other_python_versions_get_a_clear_message(version):
-    message = config.python_version_error(version)
-    assert f"needs Python 3.11, but this is Python {version[0]}.{version[1]}" in message
-    assert "delete the app and deploy it again" in message
-
-
-def test_this_interpreter_is_supported():
-    assert config.python_version_error() is None
+def test_startup_report_includes_python_version():
+    assert f"Python {platform.python_version()}" in config.startup_report()
 
 
 def test_ffmpeg_path_setting_wins(monkeypatch):
