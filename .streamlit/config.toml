@@ -1,0 +1,3 @@
+[server]
+# Phone videos of a 3-minute answer can exceed the 200 MB default.
+maxUploadSize = 1024
