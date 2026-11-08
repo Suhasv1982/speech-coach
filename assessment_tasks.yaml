@@ -2,6 +2,7 @@
 # type: scripted (read the reference_text) or spontaneous (answer freely).
 # time_limit_s: countdown length in seconds.
 # reveal_on_start: hide the prompt until the speaker clicks Start.
+# min_coverage: (scripted) warn and offer a re-take when fewer reference words are recognised.
 
 tasks:
   - id: read_aloud
@@ -31,6 +32,7 @@ tasks:
     title: Word list
     type: scripted
     time_limit_s: 90
+    min_coverage: 0.8  # warn and offer a re-take below 80% of the words recognised
     instructions: >-
       Read each word clearly, one at a time, with a short pause between words.
     reference_text: |-

@@ -33,8 +33,13 @@ Speech coach project. Repo: https://github.com/Suhasv1982/speech-coach
   `whisper_settings()`); `settings_summary()` logs sources only, never values; `ffmpeg_exe()`
 - `assessment_tasks.yaml` + `tasks.py` – the five tasks and their validation
 - `audio.py` – saves takes to `<base_dir>/<session_id>/<task_id>.<ext>`, converts to `<task_id>_16k.wav`, `cleanup()`
-- `speech_model.py` – loads faster-whisper (lazy import) and returns a `Transcript`
-- `analysis.py` – metrics: duration, word count, words per minute, reference coverage
+- `speech_model.py` – loads faster-whisper (lazy import); `transcribe()` returns a `Transcript`
+  with timed words (a filler-laden `initial_prompt` keeps "um"/"uh"); `detect_speech()` runs
+  silero VAD on the audio for pause measurement (Whisper word timings stretch over silences)
+- `analysis.py` – metrics: pace, fillers (+ timestamps), pauses > 0.5/1.5 s, mid-phrase
+  hesitations (not for word lists), longest unbroken stretch, 30 s pace windows, and for
+  scripted tasks a difflib word comparison with the reference (pronunciation clues) and a
+  `min_coverage` warning (word list: 80%)
 - `pipeline.py` – `process_take()`: save → convert → transcribe → metrics → store (local) / delete (cloud)
 - `report.py` – Markdown report and metrics JSON
 - `storage.py` – SQLite (`data/speech_coach.db`): `sessions`, `tasks` (with transcript), `metrics`

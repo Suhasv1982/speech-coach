@@ -1,9 +1,11 @@
 """SQLite storage for assessment sessions, recorded tasks and metrics."""
 
+import json
 import secrets
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import config
 
@@ -23,6 +25,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     wav_path      TEXT NOT NULL,
     duration_s    REAL,
     transcript    TEXT,
+    model         TEXT,
+    details       TEXT,
     recorded_at   TEXT NOT NULL,
     UNIQUE (session_id, task_id)
 );
@@ -55,12 +59,17 @@ def connect(path: Path | None = None) -> sqlite3.Connection:
     return conn
 
 
+# Columns added to `tasks` after the first release, in the order they were introduced.
+ADDED_TASK_COLUMNS = {"transcript": "TEXT", "model": "TEXT", "details": "TEXT"}
+
+
 def _upgrade(conn: sqlite3.Connection) -> None:
     """Add columns introduced after a database was first created."""
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
-    if "transcript" not in columns:
-        with conn:
-            conn.execute("ALTER TABLE tasks ADD COLUMN transcript TEXT")
+    with conn:
+        for name, sql_type in ADDED_TASK_COLUMNS.items():
+            if name not in columns:
+                conn.execute(f"ALTER TABLE tasks ADD COLUMN {name} {sql_type}")
 
 
 def new_session_id() -> str:
@@ -83,22 +92,29 @@ def record_task(
     wav_path: Path,
     duration_s: float | None,
     transcript: str | None = None,
+    model: str | None = None,
+    details: dict[str, Any] | None = None,
 ) -> None:
-    """Store a recorded task, replacing any earlier take of the same task in this session."""
+    """Store a recorded task, replacing any earlier take of the same task in this session.
+
+    details (fillers, pace windows, reference comparison) is stored as JSON.
+    """
     with conn:
         conn.execute(
             """
             INSERT INTO tasks (
                 session_id, task_id, source, original_path, wav_path, duration_s,
-                transcript, recorded_at
+                transcript, model, details, recorded_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (session_id, task_id) DO UPDATE SET
                 source = excluded.source,
                 original_path = excluded.original_path,
                 wav_path = excluded.wav_path,
                 duration_s = excluded.duration_s,
                 transcript = excluded.transcript,
+                model = excluded.model,
+                details = excluded.details,
                 recorded_at = excluded.recorded_at
             """,
             (
@@ -109,6 +125,8 @@ def record_task(
                 str(wav_path),
                 duration_s,
                 transcript,
+                model,
+                None if details is None else json.dumps(details),
                 _now(),
             ),
         )

@@ -14,7 +14,14 @@ import config
 import speech_model
 import storage
 from pipeline import TakeResult, process_take
-from report import build_json, build_markdown, format_metric
+from report import (
+    build_json,
+    build_markdown,
+    comparison_lines,
+    filler_line,
+    format_metric,
+    pace_line,
+)
 from tasks import Task, load_tasks
 
 st.set_page_config(page_title="Speech Coach", page_icon="🎙️")
@@ -46,6 +53,7 @@ def init_state() -> None:
     st.session_state.setdefault("started_at", {})  # task id -> countdown start time
     st.session_state.setdefault("processed", {})  # "task:source" -> file id already analysed
     st.session_state.setdefault("results", {})  # task id -> TakeResult
+    st.session_state.setdefault("takes", {})  # task id -> take number, bumped by a re-take
     st.session_state.setdefault("temp_dir", None)  # cloud mode only
 
 
@@ -72,7 +80,17 @@ def start_session() -> None:
     st.session_state.started_at = {}
     st.session_state.processed = {}
     st.session_state.results = {}
+    st.session_state.takes = {}
     go_to(1)
+
+
+def retake(task_id: str) -> None:
+    """Clear a task's result and give its recorder and uploader fresh, empty widgets."""
+    st.session_state.results.pop(task_id, None)
+    st.session_state.started_at.pop(task_id, None)
+    for source in ("mic", "upload"):
+        st.session_state.processed.pop(f"{task_id}:{source}", None)
+    st.session_state.takes[task_id] = st.session_state.takes.get(task_id, 1) + 1
 
 
 def start_countdown(task_id: str) -> None:
@@ -98,7 +116,8 @@ def analyse_take(task: Task, uploaded, source: str) -> None:
     widget = f"{task.id}:{source}"
     if st.session_state.processed.get(widget) == uploaded.file_id:
         return
-    model = get_model(*config.whisper_settings())
+    model_name, compute_type = config.whisper_settings()
+    model = get_model(model_name, compute_type)
     try:
         with st.spinner("Analysing your take…"):
             result = process_take(
@@ -108,6 +127,7 @@ def analyse_take(task: Task, uploaded, source: str) -> None:
                 ext=Path(uploaded.name).suffix or ".wav",
                 source=source,
                 model=model,
+                model_label=f"{model_name} ({compute_type})",
                 cloud=CLOUD,
                 base_dir=Path(st.session_state.temp_dir) if CLOUD else None,
             )
@@ -122,12 +142,26 @@ def analyse_take(task: Task, uploaded, source: str) -> None:
     st.session_state.results[task.id] = result
 
 
-def show_result(result: TakeResult) -> None:
-    st.success(f"Analysed: {result.duration_s:.1f} s")
-    columns = st.columns(len(result.metrics))
-    for column, (name, value) in zip(columns, result.metrics.items(), strict=True):
-        label, shown = format_metric(name, value)
-        column.metric(label, shown)
+def show_result(task: Task, result: TakeResult) -> None:
+    st.success(f"Analysed: {result.duration_s:.1f} s · speech model {result.model or 'n/a'}")
+    for warning in result.warnings:
+        st.warning(warning, icon="⚠️")
+    if result.warnings:
+        st.button("Re-take this task", key=f"retake_{task.id}", on_click=retake, args=(task.id,))
+
+    items = list(result.metrics.items())
+    for row in range(0, len(items), 4):
+        for column, (name, value) in zip(st.columns(4), items[row : row + 4], strict=False):
+            column.metric(*format_metric(name, value))
+
+    details = result.details
+    if details.get("pace_windows"):
+        st.markdown(f"**Pace by 30 s window:** {pace_line(details['pace_windows'])}")
+    if details.get("fillers"):
+        st.markdown(f"**Fillers heard:** {filler_line(details['fillers'])}")
+    if "comparison" in details:
+        st.markdown("\n".join(comparison_lines(details["comparison"])))
+
     st.markdown("**Transcript**")
     st.write(result.transcript or "_No speech detected._")
     if result.wav_path:
@@ -153,7 +187,8 @@ def task_page(index: int, task: Task) -> None:
         st.info(task.prompt)
     countdown(task)
 
-    key = f"{st.session_state.session_id}_{task.id}"
+    take = st.session_state.takes.get(task.id, 1)
+    key = f"{st.session_state.session_id}_{task.id}_{take}"
     record_tab, upload_tab = st.tabs(["🎙️ Record", "📁 Upload"])
     with record_tab:
         recording = st.audio_input("Record your answer", key=f"mic_{key}")
@@ -167,7 +202,7 @@ def task_page(index: int, task: Task) -> None:
             analyse_take(task, upload, "upload")
 
     if task.id in st.session_state.results:
-        show_result(st.session_state.results[task.id])
+        show_result(task, st.session_state.results[task.id])
 
     back, _, forward = st.columns([1, 2, 1])
     back.button("← Back", on_click=go_to, args=(index - 1,), disabled=index == 1)

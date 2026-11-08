@@ -54,6 +54,36 @@ def test_banner_only_in_cloud_mode(monkeypatch, cloud):
     assert banner_shown(run_app()) is cloud
 
 
+def test_word_list_warning_offers_retake_that_clears_the_result():
+    at = run_app()
+    at.button[0].click().run()
+    at.session_state.results = {
+        "word_list": TakeResult(
+            task_id="word_list",
+            source="mic",
+            duration_s=20.0,
+            transcript="architecture analytics",
+            metrics={"duration_s": 20.0, "reference_coverage": 0.067},
+            model="small.en (int8)",
+            details={
+                "warnings": ["Only 2 of 30 words were recognised. Consider a re-take."],
+                "comparison": {"missed": [], "different": [], "extra": []},
+            },
+        )
+    }
+    at.session_state.page = 2
+    at.run()
+
+    assert not at.exception
+    assert any("Only 2 of 30 words" in w.value for w in at.warning)
+    assert any("small.en (int8)" in s.value for s in at.success)
+    at.button(key="retake_word_list").click().run()
+
+    assert "word_list" not in at.session_state.results
+    assert at.session_state.takes["word_list"] == 2
+    assert not any("Only 2 of 30" in w.value for w in at.warning)
+
+
 @pytest.mark.parametrize("cloud", [True, False])
 def test_summary_offers_downloads(monkeypatch, cloud):
     monkeypatch.setenv("CLOUD_MODE", "true" if cloud else "false")

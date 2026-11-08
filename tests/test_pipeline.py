@@ -1,3 +1,4 @@
+import json
 from contextlib import closing
 
 import pytest
@@ -19,6 +20,7 @@ def run(sample_wav, model, *, cloud, base_dir=None, session_id="s1"):
         ext=".wav",
         source="upload",
         model=model,
+        model_label="tiny.en (int8)",
         cloud=cloud,
         base_dir=base_dir,
     )
@@ -79,16 +81,34 @@ def test_local_mode_keeps_files_and_stores_results(sample_wav, fake_model):
             for r in conn.execute("SELECT * FROM metrics WHERE session_id = ?", (session_id,))
         }
     assert row["transcript"] == result.transcript
+    assert row["model"] == "tiny.en (int8)"
+    assert json.loads(row["details"]) == result.details
     assert metrics["words_per_minute"][1] == "wpm"
+    assert metrics["mid_phrase_hesitations"][1] == "pauses"
     assert set(metrics) == set(result.metrics)
+
+
+def test_result_carries_model_and_session_2_details(sample_wav, fake_model, tmp_path):
+    result = run(sample_wav, fake_model, cloud=True, base_dir=tmp_path / "t")
+    assert result.model == "tiny.en (int8)"
+    for name in (
+        "fillers_per_minute",
+        "pauses_over_0_5s",
+        "pauses_over_1_5s",
+        "mid_phrase_hesitations",
+        "longest_stretch_s",
+        "reference_coverage",
+    ):
+        assert name in result.metrics, name
+    assert {"fillers", "pace_windows", "comparison", "warnings"} <= set(result.details)
 
 
 def test_local_mode_retake_replaces_metrics(sample_wav, fake_model):
     with closing(storage.connect()) as conn:
         session_id = storage.create_session(conn)
-    run(sample_wav, fake_model, cloud=False, session_id=session_id)
+    first = run(sample_wav, fake_model, cloud=False, session_id=session_id)
     run(sample_wav, fake_model, cloud=False, session_id=session_id)
 
     with closing(storage.connect()) as conn:
         count = conn.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
-    assert count == 4  # duration, words, pace, coverage: one set, not two
+    assert count == len(first.metrics)  # one set of metrics, not two

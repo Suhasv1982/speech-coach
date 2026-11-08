@@ -1,3 +1,4 @@
+import json
 import re
 import sqlite3
 from contextlib import closing
@@ -48,8 +49,8 @@ def test_record_task_rejects_unknown_source(conn, tmp_path):
         storage.record_task(conn, session_id, "intro", "email", tmp_path, tmp_path, 1)
 
 
-def test_old_database_gets_transcript_column():
-    """A database created by session 1 (no transcript column) is upgraded on connect."""
+def test_old_database_gets_new_columns():
+    """A database created by session 1 (no transcript/model/details) is upgraded on connect."""
     config.DB_PATH.parent.mkdir(parents=True)
     with closing(sqlite3.connect(config.DB_PATH)) as old, old:
         old.execute(
@@ -61,10 +62,40 @@ def test_old_database_gets_transcript_column():
 
     with closing(storage.connect()) as conn:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(tasks)")}
-        assert "transcript" in columns
+        assert {"transcript", "model", "details"} <= columns
         session_id = storage.create_session(conn)
-        storage.record_task(conn, session_id, "intro", "mic", "a", "b", 1.0, transcript="hi")
-        assert storage.get_session_tasks(conn, session_id)[0]["transcript"] == "hi"
+        storage.record_task(
+            conn,
+            session_id,
+            "intro",
+            "mic",
+            "a",
+            "b",
+            1.0,
+            transcript="hi",
+            model="small.en (int8)",
+            details={"fillers": [{"word": "um", "time_s": 1.0}]},
+        )
+        row = storage.get_session_tasks(conn, session_id)[0]
+        assert row["transcript"] == "hi"
+        assert row["model"] == "small.en (int8)"
+        assert json.loads(row["details"]) == {"fillers": [{"word": "um", "time_s": 1.0}]}
+
+
+def test_database_with_transcript_only_gets_model_and_details():
+    """A database from the first cloud release (transcript, no model/details) is upgraded."""
+    config.DB_PATH.parent.mkdir(parents=True)
+    with closing(sqlite3.connect(config.DB_PATH)) as old, old:
+        old.execute(
+            "CREATE TABLE tasks (id INTEGER PRIMARY KEY, session_id TEXT NOT NULL,"
+            " task_id TEXT NOT NULL, source TEXT NOT NULL, original_path TEXT NOT NULL,"
+            " wav_path TEXT NOT NULL, duration_s REAL, transcript TEXT,"
+            " recorded_at TEXT NOT NULL, UNIQUE (session_id, task_id))"
+        )
+    with closing(storage.connect()) as conn:
+        columns = [row["name"] for row in conn.execute("PRAGMA table_info(tasks)")]
+    assert columns.count("transcript") == 1
+    assert {"model", "details"} <= set(columns)
 
 
 def test_add_metric_and_complete_session(conn):

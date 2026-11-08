@@ -67,18 +67,49 @@ def test_load_model_passes_settings_to_faster_whisper(mode, monkeypatch, cloud, 
 def test_transcribe_joins_segments_and_counts_speech(tmp_path):
     segments = [
         SimpleNamespace(
-            text=" Hello there.", start=0.0, end=1.5, words=[SimpleNamespace(word=" Hello")]
+            text=" Hello there.",
+            start=0.0,
+            end=1.5,
+            words=[
+                SimpleNamespace(word=" Hello", start=0.1, end=0.5),
+                SimpleNamespace(word=" ", start=0.5, end=0.6),
+            ],
         ),
         SimpleNamespace(text=" ", start=2.0, end=2.1, words=[]),
         SimpleNamespace(text=" Second part.", start=3.0, end=4.0, words=None),
     ]
+    received = {}
 
     class Model:
         def transcribe(self, path, **kwargs):
-            assert kwargs["vad_filter"] is True
+            received.update(kwargs)
             return iter(segments), None
 
     transcript = speech_model.transcribe(Model(), tmp_path / "x.wav")
     assert transcript.text == "Hello there. Second part."
-    assert transcript.words == ["Hello"]
+    assert transcript.words == [speech_model.Word("Hello", 0.1, 0.5)]
     assert transcript.speech_duration_s == pytest.approx(2.6)
+    assert received["vad_filter"] is True
+    assert received["word_timestamps"] is True
+
+
+def test_transcribe_primes_whisper_to_keep_fillers(fake_model, tmp_path):
+    speech_model.transcribe(fake_model, tmp_path / "x.wav")
+    assert fake_model.kwargs["initial_prompt"] == speech_model.FILLER_PROMPT
+    assert "um" in speech_model.FILLER_PROMPT.lower()
+
+
+def test_detect_speech_converts_samples_to_seconds_with_light_padding(monkeypatch, sample_wav):
+    import faster_whisper.vad as vad
+
+    received = {}
+
+    def fake_timestamps(audio, vad_options, sampling_rate):
+        received.update(options=vad_options, rate=sampling_rate)
+        return [{"start": 0, "end": 8000}, {"start": 24000, "end": 32000}]
+
+    monkeypatch.setattr(vad, "get_speech_timestamps", fake_timestamps)
+    assert speech_model.detect_speech(sample_wav) == [(0.0, 0.5), (1.5, 2.0)]
+    assert received["rate"] == 16000
+    assert received["options"].speech_pad_ms == 50
+    assert received["options"].min_silence_duration_ms == 200
