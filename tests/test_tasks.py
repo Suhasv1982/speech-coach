@@ -55,6 +55,27 @@ def test_executive_question_is_hidden_until_start(tasks):
     assert "$2 million" not in task.instructions
 
 
+def test_only_word_list_has_a_coverage_threshold(tasks):
+    assert {task_id: task.min_coverage for task_id, task in tasks.items()} == {
+        "read_aloud": None,
+        "word_list": 0.8,
+        "introduction": None,
+        "executive_question": None,
+        "project_story": None,
+    }
+
+
+def test_min_coverage_on_spontaneous_task_is_rejected(tmp_path):
+    bad = tmp_path / "tasks.yaml"
+    bad.write_text(
+        "tasks:\n  - {id: a, title: A, type: spontaneous, time_limit_s: 10, instructions: x,"
+        " min_coverage: 0.8}\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="min_coverage"):
+        load_tasks(bad)
+
+
 def test_invalid_task_file_is_rejected(tmp_path):
     bad = tmp_path / "tasks.yaml"
     bad.write_text(

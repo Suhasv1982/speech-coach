@@ -94,3 +94,10 @@ def test_real_transcription_of_sample_wav(cached_tiny_model, sample_wav, tmp_pat
     assert isinstance(transcript.text, str)
     # The sample is a pure tone, so the silence filter should find little or no speech.
     assert 0.0 <= transcript.speech_duration_s <= 0.6
+
+
+def test_voice_activity_detection_runs_on_sample_wav(sample_wav):
+    """Real silero VAD via onnxruntime, used for pause measurement."""
+    segments = speech_model.detect_speech(sample_wav)
+    assert isinstance(segments, list)
+    assert all(0.0 <= start <= end <= 0.6 for start, end in segments)

@@ -9,7 +9,7 @@ from typing import Any
 import audio
 import storage
 from analysis import METRIC_UNITS, compute_metrics
-from speech_model import transcribe
+from speech_model import detect_speech, transcribe
 from tasks import Task
 
 
@@ -21,6 +21,12 @@ class TakeResult:
     transcript: str
     metrics: dict[str, float] = field(default_factory=dict)
     wav_path: str | None = None  # kept only in local mode
+    model: str | None = None  # e.g. "small.en (int8)"
+    details: dict[str, Any] = field(default_factory=dict)  # fillers, pace windows, comparison
+
+    @property
+    def warnings(self) -> list[str]:
+        return self.details.get("warnings", [])
 
 
 def process_take(
@@ -32,6 +38,7 @@ def process_take(
     source: str,
     model: Any,
     cloud: bool,
+    model_label: str | None = None,
     base_dir: Path | None = None,
     db: sqlite3.Connection | None = None,
 ) -> TakeResult:
@@ -46,14 +53,17 @@ def process_take(
         wav = audio.convert_to_wav(original)
         duration = audio.wav_duration_s(wav)
         transcript = transcribe(model, wav)
-        metrics = compute_metrics(task, transcript, duration)
+        transcript.speech_segments = detect_speech(wav)
+        analysis = compute_metrics(task, transcript, duration)
         result = TakeResult(
             task_id=task.id,
             source=source,
             duration_s=duration,
             transcript=transcript.text,
-            metrics=metrics,
+            metrics=analysis.metrics,
             wav_path=None if cloud else str(wav),
+            model=model_label,
+            details=analysis.details,
         )
         if not cloud:
             _store(db, session_id, task, result, original, wav)
@@ -82,6 +92,8 @@ def _store(
             wav,
             result.duration_s,
             transcript=result.transcript,
+            model=result.model,
+            details=result.details,
         )
         storage.replace_metrics(
             conn,

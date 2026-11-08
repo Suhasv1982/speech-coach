@@ -71,7 +71,13 @@ class FakeWhisperModel:
 
     def transcribe(self, path, **kwargs):
         self.calls.append(path)
-        words = [SimpleNamespace(word=f" {w}") for w in self.text.split()]
+        self.kwargs = kwargs
+        tokens = self.text.split()
+        step = 0.4 / len(tokens)
+        words = [
+            SimpleNamespace(word=f" {w}", start=i * step, end=(i + 0.9) * step)
+            for i, w in enumerate(tokens)
+        ]
         segment = SimpleNamespace(text=f" {self.text}", start=0.0, end=0.4, words=words)
         return iter([segment]), SimpleNamespace(language="en")
 

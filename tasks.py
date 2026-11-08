@@ -20,6 +20,7 @@ class Task:
     reference_text: str | None = None
     prompt: str | None = None
     reveal_on_start: bool = False
+    min_coverage: float | None = None  # warn below this share of reference words recognised
 
 
 def load_tasks(path: Path | None = None) -> list[Task]:
@@ -43,4 +44,9 @@ def load_tasks(path: Path | None = None) -> list[Task]:
             raise ValueError(f"Task {task.id}: spontaneous tasks must not have reference_text")
         if task.reveal_on_start and not task.prompt:
             raise ValueError(f"Task {task.id}: reveal_on_start needs a prompt")
+        if task.min_coverage is not None:
+            if task.type != "scripted":
+                raise ValueError(f"Task {task.id}: min_coverage needs a scripted task")
+            if not 0 < task.min_coverage <= 1:
+                raise ValueError(f"Task {task.id}: min_coverage must be between 0 and 1")
     return tasks
