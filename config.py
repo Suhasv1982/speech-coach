@@ -27,10 +27,13 @@ SETTING_NAMES = (
     "RECORDINGS_DIR",
     "REPORTS_DIR",
     "DB_PATH",
+    "PITCH_FLOOR_HZ",
+    "PITCH_CEILING_HZ",
 )
 
 CLOUD_WHISPER = ("small.en", "int8")
 LOCAL_WHISPER = ("medium.en", "auto")
+PITCH_RANGE_HZ = (75.0, 300.0)  # Praat pitch floor and ceiling; raise the ceiling for high voices
 
 
 def _read_secrets() -> tuple[Mapping[str, Any], str]:
@@ -90,6 +93,15 @@ def whisper_settings() -> tuple[str, str]:
     return (
         get_setting("WHISPER_MODEL", model),
         get_setting("WHISPER_COMPUTE_TYPE", compute_type),
+    )
+
+
+def pitch_settings() -> tuple[float, float]:
+    """Return (floor, ceiling) in Hz for pitch tracking; PITCH_FLOOR_HZ / PITCH_CEILING_HZ."""
+    floor, ceiling = PITCH_RANGE_HZ
+    return (
+        float(get_setting("PITCH_FLOOR_HZ", str(floor))),
+        float(get_setting("PITCH_CEILING_HZ", str(ceiling))),
     )
 
 

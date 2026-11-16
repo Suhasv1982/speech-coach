@@ -2,7 +2,8 @@
 # Every package is pinned to an exact version, including transitive ones, so the cloud
 # installs the same stack that is tested locally and in CI.
 # Supported: Python 3.11 (local) and 3.14 (Community Cloud). Every pin has wheels for both;
-# av, tokenizers are abi3 wheels, the rest ship cp311 and cp314 wheels.
+# av, tokenizers are abi3 wheels, the rest ship cp311 and cp314 wheels (praat-parselmouth
+# 0.4.7 included: win/mac/manylinux for both; it needs only numpy).
 # Keep av below 19: faster-whisper 1.2.1 asks for av>=11 with no upper bound, but av 19
 # removed the `metadata_errors` argument it passes to av.open().
 # Dev tools live in requirements-dev.txt.
@@ -14,6 +15,7 @@ python-dotenv==1.2.4
 PyYAML==6.0.3
 imageio-ffmpeg==0.8.1
 faster-whisper==1.2.1
+praat-parselmouth==0.4.7
 
 # --- Speech stack (faster-whisper) ---
 av==18.1.0

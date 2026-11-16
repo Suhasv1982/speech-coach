@@ -7,10 +7,13 @@ import time
 from contextlib import closing
 from pathlib import Path
 
+import altair as alt
+import pandas as pd
 import streamlit as st
 
 import audio
 import config
+import recorder
 import speech_model
 import storage
 from pipeline import TakeResult, process_take
@@ -21,6 +24,7 @@ from report import (
     filler_line,
     format_metric,
     pace_line,
+    voice_lines,
 )
 from tasks import Task, load_tasks
 
@@ -112,7 +116,10 @@ def countdown(task: Task) -> None:
 
 
 def analyse_take(task: Task, uploaded, source: str) -> None:
-    """Analyse a recording once per new file from each widget."""
+    """Analyse a recording once per new file from each widget.
+
+    uploaded is a Streamlit UploadedFile or a recorder.Recording (same interface).
+    """
     widget = f"{task.id}:{source}"
     if st.session_state.processed.get(widget) == uploaded.file_id:
         return
@@ -130,6 +137,7 @@ def analyse_take(task: Task, uploaded, source: str) -> None:
                 model_label=f"{model_name} ({compute_type})",
                 cloud=CLOUD,
                 base_dir=Path(st.session_state.temp_dir) if CLOUD else None,
+                recorder=recorder_info(uploaded),
             )
     except audio.ConversionError as err:
         st.error(f"That file could not be read as audio. {err}")
@@ -140,6 +148,92 @@ def analyse_take(task: Task, uploaded, source: str) -> None:
         return
     st.session_state.processed[widget] = uploaded.file_id
     st.session_state.results[task.id] = result
+
+
+def recorder_info(uploaded) -> dict | None:
+    """What the browser recorder reported (track settings, length); None for uploads."""
+    if not isinstance(uploaded, recorder.Recording):
+        return None
+    return {"browser_seconds": uploaded.seconds, **uploaded.settings}
+
+
+# Fixed categorical order from the dataviz reference palette: slot 1 for the contour,
+# slots 2-4 for the ending labels. Shape and legend carry the label too, never colour alone.
+CONTOUR_COLOR = "#2a78d6"
+ENDING_STYLE = {
+    "falling": ("#eb6834", "triangle-down"),
+    "rising": ("#1baf7a", "triangle-up"),
+    "flat": ("#eda100", "square"),
+}
+
+
+def pitch_chart(contour: list[tuple[float, float]], sentences: list[dict]) -> alt.LayerChart:
+    """Pitch over time, with each sentence ending marked by its label."""
+    points = pd.DataFrame(contour, columns=["time_s", "pitch_hz"])
+    dots = (
+        alt.Chart(points)
+        .mark_circle(size=14, opacity=0.7, color=CONTOUR_COLOR)
+        .encode(
+            x=alt.X("time_s:Q", title="Time (s)"),
+            y=alt.Y("pitch_hz:Q", title="Pitch (Hz)", scale=alt.Scale(zero=False)),
+            tooltip=[
+                alt.Tooltip("time_s:Q", title="Time (s)", format=".1f"),
+                alt.Tooltip("pitch_hz:Q", title="Pitch (Hz)", format=".0f"),
+            ],
+        )
+    )
+    ends = []
+    for sentence in sentences:
+        if sentence["ending"] not in ENDING_STYLE:
+            continue
+        near = [p for p in contour if p[0] <= sentence["end_s"] + 0.2]
+        if near:
+            ends.append(
+                {
+                    "time_s": near[-1][0],
+                    "pitch_hz": near[-1][1],
+                    "ending": sentence["ending"],
+                    "change": sentence["change_st"],
+                    "sentence": sentence["text"][:80],
+                }
+            )
+    if not ends:
+        return dots
+    labels = list(ENDING_STYLE)
+    markers = (
+        alt.Chart(pd.DataFrame(ends))
+        .mark_point(size=120, filled=True, stroke="white", strokeWidth=2)
+        .encode(
+            x="time_s:Q",
+            y="pitch_hz:Q",
+            color=alt.Color(
+                "ending:N",
+                title="Sentence ending",
+                scale=alt.Scale(domain=labels, range=[ENDING_STYLE[k][0] for k in labels]),
+            ),
+            shape=alt.Shape(
+                "ending:N",
+                scale=alt.Scale(domain=labels, range=[ENDING_STYLE[k][1] for k in labels]),
+            ),
+            tooltip=[
+                alt.Tooltip("ending:N", title="Ending"),
+                alt.Tooltip("change:Q", title="Change (st)", format="+.1f"),
+                alt.Tooltip("sentence:N", title="Sentence"),
+            ],
+        )
+    )
+    return alt.layer(dots, markers)
+
+
+def show_voice(result: TakeResult) -> None:
+    voice = result.details.get("voice")
+    if voice and voice.get("error"):
+        st.warning(f"Voice analysis failed, so there is no pitch or volume data: {voice['error']}")
+        return
+    if result.pitch_contour:
+        st.markdown("**Pitch contour**")
+        st.altair_chart(pitch_chart(result.pitch_contour, voice["sentences"]))
+    st.markdown("\n".join(voice_lines(voice)))
 
 
 def show_result(task: Task, result: TakeResult) -> None:
@@ -161,6 +255,7 @@ def show_result(task: Task, result: TakeResult) -> None:
         st.markdown(f"**Fillers heard:** {filler_line(details['fillers'])}")
     if "comparison" in details:
         st.markdown("\n".join(comparison_lines(details["comparison"])))
+    show_voice(result)
 
     st.markdown("**Transcript**")
     st.write(result.transcript or "_No speech detected._")
@@ -191,7 +286,7 @@ def task_page(index: int, task: Task) -> None:
     key = f"{st.session_state.session_id}_{task.id}_{take}"
     record_tab, upload_tab = st.tabs(["🎙️ Record", "📁 Upload"])
     with record_tab:
-        recording = st.audio_input("Record your answer", key=f"mic_{key}")
+        recording = recorder.raw_recorder(key=f"mic_{key}")
         if recording is not None:
             analyse_take(task, recording, "mic")
     with upload_tab:

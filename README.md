@@ -6,7 +6,16 @@ project story. For each task you record in the browser or upload an audio/video 
 The app converts it to 16 kHz mono WAV, transcribes it with
 [faster-whisper](https://github.com/SYSTRAN/faster-whisper), and shows simple metrics
 (duration, word count, pace in words per minute, and for reading tasks the share of
-reference words spoken). Each session ends with a downloadable report and metrics JSON.
+reference words spoken). It also measures the voice with Praat
+([praat-parselmouth](https://github.com/YannickJadoul/Parselmouth)): pitch contour, falling,
+flat or rising sentence endings, pitch range (flagged as monotone under 5 semitones) and
+sentences that trail off in volume. Each session ends with a downloadable report and
+metrics JSON.
+
+The in-browser recorder asks for the raw microphone signal, with echo cancellation, noise
+suppression and auto gain control off, because those filters flatten loudness and can
+clip quiet sentence endings. The settings the browser actually applied are logged and
+shown in the report.
 
 ## Two modes
 
@@ -17,6 +26,8 @@ reference words spoken). Each session ends with a downloadable report and metric
 | History | SQLite in `data/speech_coach.db`; reports in `reports/` | Current browser tab only; download the report |
 
 Override the model with `WHISPER_MODEL` / `WHISPER_COMPUTE_TYPE` in either mode.
+Pitch is tracked between 75 and 300 Hz; set `PITCH_FLOOR_HZ` / `PITCH_CEILING_HZ` to
+change it (e.g. a ceiling of 500 for high voices).
 
 ## Run locally
 

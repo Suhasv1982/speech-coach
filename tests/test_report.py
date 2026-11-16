@@ -20,6 +20,72 @@ DETAILS = {
         "extra": [],
     },
     "warnings": [],
+    "recording": {
+        "source": "mic",
+        "sample_rate_hz": 48000,
+        "channels": "mono",
+        "duration_s": 61.2,
+        "autoGainControl": False,
+        "noiseSuppression": False,
+        "echoCancellation": False,
+    },
+    "voice": {
+        "pitch_floor_hz": 75.0,
+        "pitch_ceiling_hz": 300.0,
+        "voiced_s": 30.5,
+        "endings": {"falling": 1, "flat": 1, "rising": 1, "unclear": 1},
+        "endings_pct": {"falling": 33.3, "flat": 33.3, "rising": 33.3},
+        "statement_falling_pct": 50.0,
+        "pitch_range_st": 3.8,
+        "monotone": True,
+        "trailing_off": [{"time_s": 12.4, "text": "It would also reduce costs.", "drop_db": 8.2}],
+        "sentences": [
+            {
+                "start_s": 0.0,
+                "end_s": 6.1,
+                "text": "Our proposal is to invest.",
+                "ending": "falling",
+                "change_st": -2.4,
+                "question": False,
+                "mean_db": 70.0,
+                "last_word_db": 68.0,
+                "trailing_off": False,
+            },
+            {
+                "start_s": 6.5,
+                "end_s": 12.0,
+                "text": "Is that clear?",
+                "ending": "rising",
+                "change_st": 3.1,
+                "question": True,
+                "mean_db": 70.0,
+                "last_word_db": 69.0,
+                "trailing_off": False,
+            },
+            {
+                "start_s": 12.4,
+                "end_s": 18.0,
+                "text": "It would also reduce costs.",
+                "ending": "flat",
+                "change_st": 0.2,
+                "question": False,
+                "mean_db": 70.0,
+                "last_word_db": 61.8,
+                "trailing_off": True,
+            },
+            {
+                "start_s": 18.5,
+                "end_s": 20.0,
+                "text": "Thanks.",
+                "ending": "unclear",
+                "change_st": None,
+                "question": False,
+                "mean_db": None,
+                "last_word_db": None,
+                "trailing_off": False,
+            },
+        ],
+    },
 }
 METRICS = {
     "duration_s": 61.2,
@@ -32,6 +98,9 @@ METRICS = {
     "mid_phrase_hesitations": 2.0,
     "longest_stretch_s": 14.2,
     "reference_coverage": 0.94,
+    "pitch_range_st": 3.8,
+    "falling_endings_pct": 50.0,
+    "trailing_off_count": 1.0,
 }
 RESULTS = {
     "read_aloud": TakeResult(
@@ -42,6 +111,7 @@ RESULTS = {
         metrics=METRICS,
         model="small.en (int8)",
         details=DETAILS,
+        pitch_contour=[(0.1, 150.0), (0.15, 152.0)],
     ),
     "word_list": TakeResult(
         task_id="word_list",
@@ -131,3 +201,57 @@ def test_long_missed_passages_are_shortened_in_markdown_but_not_json():
     assert "w19" not in report
     data = json.loads(build_json("s1", TASKS, {"read_aloud": result}))
     assert data["tasks"][0]["comparison"]["missed"][0]["expected"] == long_phrase
+
+
+def test_markdown_shows_voice_section():
+    report = build_markdown("s1", TASKS, RESULTS)
+    for text in [
+        "**Voice: pitch, intonation and volume**",
+        "**Sentence endings:** falling 1 (33%) · flat 1 (33%) · rising 1 (33%) · unclear 1",
+        "**Falling statement endings:** 50%",
+        "**Pitch range:** 3.8 semitones ⚠️ monotone (under 5 st)",
+        "**Trailing off:** 0:12.4 “It would also reduce costs.” (−8 dB)",
+        "Pitch tracked between 75 and 300 Hz",
+        "| 0:00.0 | falling | -2.4 st | Our proposal is to invest. |",
+        "| 0:12.4 | flat · trails off | +0.2 st | It would also reduce costs. |",
+        "| 0:18.5 | unclear | – | Thanks. |",
+        "**Pitch range:** 3.8 st",
+        "**Falling statement endings:** 50%",
+        "**Trailing-off sentences:** 1",
+        "**Recording:** 48000 Hz, mono, 61.2 s, browser processing off",
+    ]:
+        assert text in report, text
+
+
+def test_markdown_flags_missing_voice_analysis():
+    report = build_markdown("s1", TASKS, RESULTS)
+    word_list = report.split("## Word list")[1].split("## ")[0]
+    assert "⚠️ Voice analysis was not run" in word_list
+
+
+def test_markdown_notes_too_little_voiced_speech():
+    voice = {**DETAILS["voice"], "pitch_range_st": None, "monotone": False, "voiced_s": 0.4}
+    result = TakeResult(**{**vars(RESULTS["read_aloud"]), "details": {**DETAILS, "voice": voice}})
+    report = build_markdown("s1", TASKS, {"read_aloud": result})
+    assert "**Pitch range:** not measured (only 0.4 s of voiced pitch)" in report
+
+
+def test_json_includes_voice_but_not_the_contour():
+    data = json.loads(build_json("s1", TASKS, RESULTS))
+    first = data["tasks"][0]
+    voice = first["voice"]
+    assert voice["endings"] == {"falling": 1, "flat": 1, "rising": 1, "unclear": 1}
+    assert voice["endings_pct"]["falling"] == 33.3
+    assert voice["pitch_range_st"] == 3.8 and voice["monotone"] is True
+    assert voice["trailing_off"][0]["time_s"] == 12.4
+    assert [s["ending"] for s in voice["sentences"]] == ["falling", "rising", "flat", "unclear"]
+    assert first["metrics"]["falling_endings_pct"] == 50.0
+    assert first["recording"]["sample_rate_hz"] == 48000
+    assert "pitch_contour" not in first
+
+
+def test_markdown_says_when_there_are_no_sentences():
+    voice = {**DETAILS["voice"], "sentences": [], "trailing_off": []}
+    result = TakeResult(**{**vars(RESULTS["read_aloud"]), "details": {**DETAILS, "voice": voice}})
+    report = build_markdown("s1", TASKS, {"read_aloud": result})
+    assert "No sentences in the transcript" in report

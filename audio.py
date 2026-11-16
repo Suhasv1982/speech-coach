@@ -1,5 +1,6 @@
 """Save recordings and convert them to 16 kHz mono WAV with ffmpeg."""
 
+import re
 import subprocess
 import wave
 from pathlib import Path
@@ -75,3 +76,26 @@ def cleanup(*paths: Path | None) -> None:
 def wav_duration_s(path: Path) -> float:
     with wave.open(str(path), "rb") as wav:
         return wav.getnframes() / wav.getframerate()
+
+
+_STREAM = re.compile(r"Audio: .*?(\d+) Hz, ([^,]+)")
+_DURATION = re.compile(r"Duration: (\d+):(\d+):(\d+(?:\.\d+)?)")
+
+
+def probe(src: Path) -> dict[str, float | int | str | None]:
+    """Sample rate, channel layout and duration of the original recording, from ffmpeg -i."""
+    result = subprocess.run(
+        [config.ffmpeg_exe(), "-hide_banner", "-i", str(src)], capture_output=True, text=True
+    )
+    info: dict[str, float | int | str | None] = {
+        "sample_rate_hz": None,
+        "channels": None,
+        "duration_s": None,
+    }
+    if stream := _STREAM.search(result.stderr):
+        info["sample_rate_hz"] = int(stream.group(1))
+        info["channels"] = stream.group(2).strip()
+    if duration := _DURATION.search(result.stderr):
+        hours, minutes, seconds = duration.groups()
+        info["duration_s"] = round(int(hours) * 3600 + int(minutes) * 60 + float(seconds), 2)
+    return info
