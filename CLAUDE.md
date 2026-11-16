@@ -40,7 +40,14 @@ Speech coach project. Repo: https://github.com/Suhasv1982/speech-coach
   hesitations (not for word lists), longest unbroken stretch, 30 s pace windows, and for
   scripted tasks a difflib word comparison with the reference (pronunciation clues) and a
   `min_coverage` warning (word list: 80%)
-- `pipeline.py` – `process_take()`: save → convert → transcribe → metrics → store (local) / delete (cloud)
+- `voice_analysis.py` – Praat (praat-parselmouth, lazy import) on the 16 kHz WAV: pitch contour
+  (`PITCH_FLOOR_HZ`/`PITCH_CEILING_HZ`, default 75–300), sentence endings falling/flat/rising
+  (±1 st over the last ~400 ms), pitch range p10–p90 (monotone < 5 st), trailing off (last word
+  > 6 dB below sentence average). Failures land in `details["voice"]["error"]`, shown as ⚠️
+- `recorder.py` – browser mic recorder (st.components.v2) with echo cancellation, noise
+  suppression and auto gain off; returns an UploadedFile-like `Recording` plus applied settings
+- `pipeline.py` – `process_take()`: save → probe/log recording → convert → transcribe → metrics →
+  voice → store (local) / delete (cloud). `pitch_contour` is kept out of JSON and SQLite
 - `report.py` – Markdown report and metrics JSON
 - `storage.py` – SQLite (`data/speech_coach.db`): `sessions`, `tasks` (with transcript), `metrics`
 - `app.py` – Streamlit UI: start page, one page per task, summary with downloads

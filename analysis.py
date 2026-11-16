@@ -270,4 +270,7 @@ METRIC_UNITS = {
     "mid_phrase_hesitations": "pauses",
     "longest_stretch_s": "s",
     "reference_coverage": "fraction",
+    "pitch_range_st": "st",
+    "falling_endings_pct": "%",
+    "trailing_off_count": "sentences",
 }

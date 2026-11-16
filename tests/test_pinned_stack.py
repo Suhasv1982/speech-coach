@@ -101,3 +101,18 @@ def test_voice_activity_detection_runs_on_sample_wav(sample_wav):
     segments = speech_model.detect_speech(sample_wav)
     assert isinstance(segments, list)
     assert all(0.0 <= start <= end <= 0.6 for start, end in segments)
+
+
+def test_parselmouth_tracks_pitch_of_a_generated_tone():
+    """Real Praat via praat-parselmouth (pinned wheel), as used by voice_analysis."""
+    import numpy as np
+    import parselmouth
+
+    t = np.arange(16000) / 16000
+    sound = parselmouth.Sound(np.sin(2 * np.pi * 150 * t), sampling_frequency=16000)
+    f0 = sound.to_pitch(time_step=0.01, pitch_floor=75, pitch_ceiling=300).selected_array[
+        "frequency"
+    ]
+    voiced = f0[f0 > 0]
+    assert len(voiced) > 50
+    assert np.median(voiced) == pytest.approx(150, abs=2)

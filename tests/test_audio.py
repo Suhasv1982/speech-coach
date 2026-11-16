@@ -41,3 +41,11 @@ def test_convert_to_wav_raises_clear_error_when_ffmpeg_fails(tmp_path, monkeypat
 
     with pytest.raises(audio.ConversionError, match="broken.mp4.*Invalid data found"):
         audio.convert_to_wav(src)
+
+
+def test_probe_reads_sample_rate_channels_and_duration(sample_wav):
+    assert audio.probe(sample_wav) == {
+        "sample_rate_hz": 22050,
+        "channels": "stereo",
+        "duration_s": 0.5,
+    }

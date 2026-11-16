@@ -5,8 +5,10 @@ import pytest
 
 import audio
 import config
+import pipeline
 import storage
 from pipeline import process_take
+from report import build_markdown
 from tasks import load_tasks
 
 TASK = {task.id: task for task in load_tasks()}["read_aloud"]
@@ -112,3 +114,49 @@ def test_local_mode_retake_replaces_metrics(sample_wav, fake_model):
     with closing(storage.connect()) as conn:
         count = conn.execute("SELECT COUNT(*) FROM metrics").fetchone()[0]
     assert count == len(first.metrics)  # one set of metrics, not two
+
+
+def test_result_has_voice_and_recording_details(sample_wav, fake_model, tmp_path):
+    result = run(sample_wav, fake_model, cloud=True, base_dir=tmp_path / "t")
+    voice = result.details["voice"]
+    assert "error" not in voice
+    assert {"endings", "endings_pct", "pitch_range_st", "monotone", "trailing_off"} <= set(voice)
+    assert voice["sentences"][0]["text"].startswith("Our proposal")
+    assert result.metrics["trailing_off_count"] == 0.0
+    recording = result.details["recording"]
+    assert recording["sample_rate_hz"] == 22050
+    assert recording["duration_s"] == 0.5
+
+
+def test_recorder_settings_are_kept_with_the_recording(sample_wav, fake_model, tmp_path):
+    result = process_take(
+        task=TASK,
+        session_id="s1",
+        data=sample_wav.read_bytes(),
+        ext=".wav",
+        source="mic",
+        model=fake_model,
+        cloud=True,
+        base_dir=tmp_path / "t",
+        recorder={"sampleRate": 48000, "autoGainControl": False, "noiseSuppression": False},
+    )
+    assert result.details["recording"]["autoGainControl"] is False
+    assert result.details["recording"]["source"] == "mic"
+
+
+def test_voice_analysis_failure_is_reported_not_raised(
+    sample_wav, fake_model, tmp_path, monkeypatch
+):
+    def broken(*args, **kwargs):
+        raise RuntimeError("praat crashed")
+
+    monkeypatch.setattr(pipeline, "analyse_voice", broken)
+    result = run(sample_wav, fake_model, cloud=True, base_dir=tmp_path / "t")
+
+    assert result.details["voice"] == {"error": "RuntimeError: praat crashed"}
+    assert result.transcript.startswith("Our proposal")  # the rest of the analysis survives
+    assert "pitch_range_st" not in result.metrics
+    assert result.warnings == []  # no re-take prompt for a tool failure
+    report = build_markdown("s1", [TASK], {TASK.id: result})
+    assert "⚠️ Voice analysis failed" in report
+    assert "praat crashed" in report
