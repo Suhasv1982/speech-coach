@@ -18,6 +18,7 @@ METRIC_LABELS = {
     "mid_phrase_hesitations": ("Mid-phrase hesitations", "{:.0f}"),
     "longest_stretch_s": ("Longest unbroken stretch", "{:.1f} s"),
     "reference_coverage": ("Reference words spoken", "{:.0%}"),
+    "clear_words_pct": ("Clear words", "{:.0f}%"),
     "pitch_range_st": ("Pitch range", "{:.1f} st"),
     "falling_endings_pct": ("Falling statement endings", "{:.0f}%"),
     "trailing_off_count": ("Trailing-off sentences", "{:.0f}"),
@@ -27,9 +28,17 @@ DEFINITIONS = (
     "_Pauses are silences between stretches of speech, measured on the audio; those over "
     "1.5 s are also counted over 0.5 s. A mid-phrase hesitation is a pause over 0.5 s that "
     "doesn't follow punctuation (not reported for the word list). The longest unbroken "
-    "stretch has no pause over 0.5 s. Fillers counted: um, uh, er, ah, hmm and similar, plus "
-    '"you know" and "I mean"; they depend on the speech model writing them down._'
+    "stretch has no pause over 0.5 s. Fillers counted: um, uh, er, ah, hmm and similar, "
+    '"you know", "I mean", and, only where they work as fillers, "like" (e.g. "it was like", '
+    '"like two hours"), "kind of" / "sort of" (not "a kind of") and "So," opening a '
+    "sentence; they depend on the speech model writing them down. Numbers are compared by "
+    'value ("forty percent" = "40%"). For the word list, each word is rated clear '
+    "(recognised with at least 60% confidence), unclear, misheard or missed._"
 )
+MODE_NOTES = {
+    "cloud": "cloud practice mode: lighter speech model; local runs use medium.en",
+    "local": "local mode",
+}
 VOICE_DEFINITIONS = (
     "_Voice is measured on the audio with Praat. A sentence ending is the pitch movement over "
     "the last ~400 ms of the sentence: falling below −1 semitone, rising above +1, flat in "
@@ -176,6 +185,36 @@ def voice_lines(voice: dict[str, Any] | None) -> list[str]:
     return lines
 
 
+def clarity_lines(rows: list[dict[str, Any]]) -> list[str]:
+    """Per-word clarity for the word list (it has no sentences to analyse)."""
+    lines = ["", "**Word clarity**", "", "| Word | Status | Heard as | Time | Confidence |"]
+    lines.append("|---|---|---|---|---|")
+    for row in rows:
+        confidence = "–" if row["confidence"] is None else f"{row['confidence']:.0%}"
+        heard = row["heard"] if row["heard"] and row["heard"] != row["word"] else ""
+        time = format_time(row["time_s"]) if row["time_s"] is not None else "–"
+        lines.append(f"| {row['word']} | {row['status']} | {heard} | {time} | {confidence} |")
+    return lines
+
+
+def offender_lines(offenders: list[dict[str, Any]], titles: Mapping[str, str]) -> list[str]:
+    """Phrases mis-transcribed in 2+ sessions."""
+    lines = ["## Repeat offenders", ""]
+    if not offenders:
+        return [*lines, "_No phrase was mis-transcribed in two or more saved sessions._", ""]
+    lines += [
+        "_Reference phrases transcribed differently in two or more sessions: practise these._",
+        "",
+        "| Phrase | Task | Sessions | Heard as |",
+        "|---|---|---|---|",
+    ]
+    for offender in offenders:
+        heard = "; ".join(f"“{h['heard']}”" for h in offender["heard"])
+        title = titles.get(offender["task_id"], offender["task_id"])
+        lines.append(f"| {offender['phrase']} | {title} | {offender['sessions']} | {heard} |")
+    return [*lines, ""]
+
+
 def task_section(task: Task, result: TakeResult | None) -> list[str]:
     lines = [f"## {task.title}", ""]
     if result is None:
@@ -196,18 +235,31 @@ def task_section(task: Task, result: TakeResult | None) -> list[str]:
         lines.append(f"- **Recording:** {recording_line(details['recording'])}")
     if "comparison" in details:
         lines += comparison_lines(details["comparison"])
-    lines += voice_lines(details.get("voice"))
+    if "word_clarity" in details:
+        lines += clarity_lines(details["word_clarity"])
+    else:
+        lines += voice_lines(details.get("voice"))
     lines += ["", "**Transcript**", "", f"> {result.transcript or '(no speech detected)'}", ""]
     return lines
 
 
-def build_markdown(session_id: str, tasks: list[Task], results: Mapping[str, TakeResult]) -> str:
+def build_markdown(
+    session_id: str,
+    tasks: list[Task],
+    results: Mapping[str, TakeResult],
+    *,
+    mode: str | None = None,
+    offenders: list[dict[str, Any]] | None = None,
+) -> str:
     models = models_used(results)
+    model_line = f"Speech model: {', '.join(models) if models else 'n/a'}"
+    if mode in MODE_NOTES:
+        model_line += f" ({MODE_NOTES[mode]})"
     lines = [
         "# Speech Coach report",
         "",
         f"Session: `{session_id}`  ",
-        f"Speech model: {', '.join(models) if models else 'n/a'}",
+        model_line,
         "",
         DEFINITIONS,
         "",
@@ -216,10 +268,19 @@ def build_markdown(session_id: str, tasks: list[Task], results: Mapping[str, Tak
     ]
     for task in tasks:
         lines += task_section(task, results.get(task.id))
+    if offenders is not None:
+        lines += offender_lines(offenders, {task.id: task.title for task in tasks})
     return "\n".join(lines)
 
 
-def build_json(session_id: str, tasks: list[Task], results: Mapping[str, TakeResult]) -> str:
+def build_json(
+    session_id: str,
+    tasks: list[Task],
+    results: Mapping[str, TakeResult],
+    *,
+    mode: str | None = None,
+    offenders: list[dict[str, Any]] | None = None,
+) -> str:
     entries = []
     for task in tasks:
         entry: dict[str, Any] = {"task_id": task.id, "title": task.title}
@@ -235,5 +296,13 @@ def build_json(session_id: str, tasks: list[Task], results: Mapping[str, TakeRes
                 **result.details,
             )
         entries.append(entry)
-    payload = {"session_id": session_id, "speech_models": models_used(results), "tasks": entries}
+    payload: dict[str, Any] = {
+        "session_id": session_id,
+        "speech_models": models_used(results),
+    }
+    if mode is not None:
+        payload["mode"] = mode
+    payload["tasks"] = entries
+    if offenders is not None:
+        payload["repeat_offenders"] = offenders
     return json.dumps(payload, indent=2)

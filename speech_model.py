@@ -22,6 +22,7 @@ class Word:
     text: str  # as transcribed, may include punctuation, e.g. "platform,"
     start: float  # seconds from the start of the recording
     end: float
+    probability: float | None = None  # Whisper's confidence in the word, 0-1
 
 
 @dataclass
@@ -75,5 +76,13 @@ def transcribe(model: Any, wav_path: Path) -> Transcript:
         for word in segment.words or []:
             text = word.word.strip()
             if text:
-                words.append(Word(text, float(word.start), float(word.end)))
+                probability = getattr(word, "probability", None)
+                words.append(
+                    Word(
+                        text,
+                        float(word.start),
+                        float(word.end),
+                        None if probability is None else float(probability),
+                    )
+                )
     return Transcript(text=" ".join(t for t in texts if t), words=words, speech_duration_s=speech)

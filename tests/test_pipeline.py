@@ -160,3 +160,25 @@ def test_voice_analysis_failure_is_reported_not_raised(
     report = build_markdown("s1", [TASK], {TASK.id: result})
     assert "⚠️ Voice analysis failed" in report
     assert "praat crashed" in report
+
+
+def test_word_list_skips_sentence_analysis_and_reports_clarity(sample_wav, fake_model, tmp_path):
+    word_list = {task.id: task for task in load_tasks()}["word_list"]
+    fake_model.text = "architecture, analytics, governance."
+    model = fake_model
+    result = process_take(
+        task=word_list,
+        session_id="s1",
+        data=sample_wav.read_bytes(),
+        ext=".wav",
+        source="upload",
+        model=model,
+        cloud=True,
+        base_dir=tmp_path / "t",
+    )
+    assert "voice" not in result.details
+    assert result.pitch_contour == []
+    assert "pitch_range_st" not in result.metrics
+    assert "trailing_off_count" not in result.metrics
+    assert [r["status"] for r in result.details["word_clarity"][:3]] == ["clear"] * 3
+    assert "clear_words_pct" in result.metrics

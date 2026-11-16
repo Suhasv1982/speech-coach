@@ -2,12 +2,15 @@ import pytest
 
 from analysis import (
     Token,
+    _tokens,
+    canonicalise,
     compare_to_reference,
     compute_metrics,
     find_fillers,
     normalise,
     pace_windows,
     pause_metrics,
+    word_clarity,
 )
 from speech_model import Transcript, Word
 from tasks import load_tasks
@@ -145,7 +148,7 @@ def test_comparison_lists_differently_transcribed_and_missed_words():
     ]
     comparison = compare_to_reference(reference, spoken)
     assert comparison["different"] == [
-        {"expected": "positions us", "heard": "purchases", "time_s": 0.9}
+        {"expected": "positions us", "heard": "purchases", "time_s": 0.9, "position": 3}
     ]
     assert comparison["missed"] == [{"expected": "machine", "position": 7}]
     assert comparison["matched_words"] == 6
@@ -269,3 +272,146 @@ def test_word_list_has_no_mid_phrase_hesitation_metric(tasks):
     assert metrics["pauses_over_0_5s"] == 2
     read = compute_metrics(tasks["read_aloud"], transcript, 5.0).metrics
     assert read["mid_phrase_hesitations"] == 2
+
+
+# --- Fillers that are also real words: "like", "kind of", "So," ---
+
+# Project story from the 2026-11-16 run (small.en): the report showed 0 fillers.
+PROJECT_STORY_2026_11_16 = (
+    "At Adriasis Healthcare, overnight reporting was missing its deadline by several hours. "
+    "So, the reader's card is text to text numbers in the afternoon, too late to act on. "
+    "So, the design is new data platform in Azure, a Medallion architecture, though it is a "
+    "certain and epic data into cloud warehouse, inside a secured HIPAA compliant network. "
+    "I can give you a brief overview of the layout. So, in the Medallion architecture, so the "
+    "certain and epic data were like, raw data was like rolled into bronze, and then confirmed "
+    "dimensions were being created in silver, with deduplication and deduplication being done "
+    "on silver data, and the semantic models and the reporting kind of structures were being "
+    "created in the gold layer. So, once everything was built, the reports now arrive like two "
+    "hours before the business day starts, without room for data growth, I'm processing time "
+    "fell by about like 30%."
+)
+
+
+def fillers_in(text: str) -> list[str]:
+    transcript = Transcript(text, evenly_spaced(text))
+    fillers, _ = find_fillers(_tokens(transcript))
+    return [f["word"] for f in fillers]
+
+
+def test_project_story_fillers_from_2026_11_16_run(tasks):
+    assert fillers_in(PROJECT_STORY_2026_11_16) == [
+        "so",  # So, the reader's card
+        "so",  # So, the design
+        "so",  # So, in the Medallion architecture  (the following "so the" is mid-sentence)
+        "like",  # were like,
+        "like",  # was like rolled
+        "kind of",  # the reporting kind of structures
+        "so",  # So, once everything was built
+        "like",  # arrive like two hours
+        "like",  # about like 30%
+    ]
+    transcript = Transcript(PROJECT_STORY_2026_11_16, evenly_spaced(PROJECT_STORY_2026_11_16))
+    metrics = compute_metrics(tasks["project_story"], transcript, 67.8).metrics
+    assert metrics["filler_count"] == 9
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Moving legacy systems like SSIS onto Delta Lake.",  # like = such as
+        "We built government-like controls.",  # hyphenated
+        "I would like to explain. It feels like progress.",
+        "It looks like rain.",
+        "What kind of platform? A kind of hub. This sort of thing.",
+        "So leaders can decide. We did so, carefully.",  # no comma / not sentence-initial
+        "It was so, so good.",
+    ],
+)
+def test_real_uses_of_like_kind_of_and_so_are_not_fillers(text):
+    assert fillers_in(text) == []
+
+
+def test_like_before_numbers_and_sentence_initial_so():
+    assert fillers_in("So, it took like 3 hours. Okay? So, we sort of fixed it.") == [
+        "so",
+        "like",
+        "so",
+        "sort of",
+    ]
+
+
+# --- Numbers compared by value ---
+
+
+def spoken(text: str) -> list[Token]:
+    return _tokens(Transcript(text, evenly_spaced(text)))
+
+
+@pytest.mark.parametrize(
+    ("reference", "heard"),
+    [
+        (
+            "Analysts spend nearly forty percent of their time",
+            "Analysts spend nearly 40% of their time",
+        ),
+        ("within eighteen months", "within 18 months"),
+        ("about twenty five teams", "about 25 teams"),
+        ("one hundred and twelve reports", "112 reports"),
+        ("two thousand users", "2000 users"),
+    ],
+)
+def test_numbers_match_their_digit_form(reference, heard):
+    comparison = compare_to_reference(reference, spoken(heard))
+    assert comparison["different"] == [] and comparison["missed"] == []
+    assert comparison["matched_words"] == comparison["reference_words"]
+
+
+def test_number_mismatch_shows_the_spoken_forms():
+    comparison = compare_to_reference("within eighteen months", spoken("within 80 months"))
+    assert comparison["different"] == [
+        {"expected": "eighteen", "heard": "80", "time_s": 0.4, "position": 2}
+    ]
+
+
+def test_separate_number_words_are_not_merged():
+    assert [t.word for t in canonicalise(spoken("one two three"))] == ["1", "2", "3"]
+
+
+# --- Word list: per-word clarity ---
+
+
+def test_word_clarity_rates_each_listed_word(tasks):
+    words = [
+        Word("Architecture,", 0.0, 0.5, 0.95),
+        Word("analytics,", 1.0, 1.5, 0.41),
+        Word("government,", 2.0, 2.5, 0.9),
+    ]
+    rows = word_clarity(
+        "architecture\nanalytics\ngovernance\ninfrastructure", _tokens(Transcript("", words))
+    )
+    assert [(r["word"], r["status"]) for r in rows] == [
+        ("architecture", "clear"),
+        ("analytics", "unclear"),
+        ("governance", "misheard"),
+        ("infrastructure", "missed"),
+    ]
+    assert rows[1]["confidence"] == 0.41 and rows[1]["time_s"] == 1.0
+    assert rows[2]["heard"] == "government"
+
+
+def test_word_list_gets_clarity_and_clear_word_percentage(tasks):
+    task = tasks["word_list"]
+    text = "So, " + ", ".join(task.reference_text.split())
+    result = compute_metrics(task, Transcript(text, evenly_spaced(text)), 60.0)
+    clarity = result.details["word_clarity"]
+    assert len(clarity) == 30
+    assert {row["status"] for row in clarity} == {"clear"}
+    assert result.metrics["clear_words_pct"] == 100.0
+    assert result.details["fillers"][0]["word"] == "so"  # opening "So," is a filler
+
+
+def test_other_tasks_have_no_word_clarity(tasks):
+    text = "Our proposal is to invest."
+    result = compute_metrics(tasks["read_aloud"], Transcript(text, evenly_spaced(text)), 5.0)
+    assert "word_clarity" not in result.details
+    assert "clear_words_pct" not in result.metrics

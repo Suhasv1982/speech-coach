@@ -1,8 +1,13 @@
 """Speaking metrics computed from a transcript with word timestamps.
 
 Definitions (used in the report):
-- Fillers: um, uh, er, ah, hmm and variants, plus "you know" and "I mean". "Like" and "so"
-  are not counted because they are usually real words.
+- Fillers: um, uh, er, ah, hmm and variants, "you know" and "I mean", plus three that are
+  often real words and so are only counted in filler positions:
+  - "like" followed by a comma, after a form of "be" ("it was like rolled"), or before a
+    number or after "about"/"just" ("like two hours", "about like 30%"); never "would
+    like", "feel like" or "-like" ("government-like"), or "like" meaning "such as";
+  - "kind of" / "sort of" unless it follows a determiner ("a kind of", "what kind of");
+  - "So," opening a sentence (start of the answer or after . ? !, followed by a comma).
 - Pause: a gap between the end of one word and the start of the next. Pauses over 1.5 s
   are also counted in the over-0.5 s total.
 - Pauses are measured on the audio with voice activity detection (Whisper's word timestamps
@@ -14,6 +19,9 @@ Definitions (used in the report):
 - Pace windows: words per minute in each 30-second window of the recording.
 - Reference comparison (scripted tasks): the transcript aligned word by word with the
   reference text; missed and differently transcribed words are pronunciation clues.
+  Numbers are compared by value, so "forty percent" matches "40%" and "eighteen" "18".
+- Word clarity (word list): for each listed word, clear (recognised with confidence of at
+  least 60%), unclear (recognised, lower confidence), misheard or missed.
 """
 
 import re
@@ -35,6 +43,30 @@ FILLER_PHRASES = {("you", "know"), ("i", "mean")}
 _WORD = re.compile(r"[a-z0-9]+(?:'[a-z]+)?")
 _PHRASE_END = re.compile(r"[.,!?;:—–-]$")
 _TRAILING_OFF = re.compile(r"(\.\.\.|…)$")  # Whisper writes "to..." for a trailing-off pause
+_SENTENCE_END = re.compile(r"[.?!][\"')]*$")
+
+BE_FORMS = {"is", "was", "were", "are", "am", "be", "been", "being", "it's", "that's"}
+BE_FORMS |= {"he's", "she's", "they're", "we're", "you're", "i'm", "there's"}
+NOT_FILLER_BEFORE_LIKE = {"would", "i'd", "you'd", "we'd", "they'd", "he'd", "she'd"}
+NOT_FILLER_BEFORE_LIKE |= {"feel", "feels", "felt", "look", "looks", "looked", "seem", "seems"}
+NOT_FILLER_BEFORE_LIKE |= {"seemed", "sound", "sounds", "sounded"}
+APPROX_WORDS = {"about", "just", "around", "roughly"}
+KIND_DETERMINERS = {"a", "an", "the", "what", "this", "that", "these", "those", "some", "any"}
+KIND_DETERMINERS |= {"every", "each", "one", "which", "same", "different", "no", "other"}
+CLEAR_CONFIDENCE = 0.6
+
+UNITS = {
+    name: value
+    for value, name in enumerate(
+        "zero one two three four five six seven eight nine ten eleven twelve thirteen "
+        "fourteen fifteen sixteen seventeen eighteen nineteen".split()
+    )
+}
+TENS = {
+    name: 10 * (i + 2)
+    for i, name in enumerate("twenty thirty forty fifty sixty seventy eighty ninety".split())
+}
+SCALES = {"hundred": 100, "thousand": 1000, "million": 1_000_000}
 
 
 def ends_phrase(text: str) -> bool:
@@ -53,6 +85,15 @@ class Token:
 
     word: str
     start: float | None = None
+    raw: str = ""  # the word as transcribed, with punctuation
+    last: bool = True  # last token of its transcribed word (so trailing punctuation applies)
+    joined: bool = False  # part of a hyphenated word, e.g. "government-like"
+    probability: float | None = None
+    display: str = ""  # how to show it (canonical number tokens keep their spoken form)
+
+    @property
+    def shown(self) -> str:
+        return self.display or self.word
 
 
 @dataclass
@@ -62,9 +103,57 @@ class Analysis:
 
 
 def _tokens(transcript: Transcript) -> list[Token]:
-    if transcript.words:
-        return [Token(w, word.start) for word in transcript.words for w in normalise(word.text)]
-    return [Token(w) for w in normalise(transcript.text)]
+    if not transcript.words:
+        return [Token(w, raw=w) for w in normalise(transcript.text)]
+    tokens = []
+    for word in transcript.words:
+        parts = normalise(word.text)
+        for k, part in enumerate(parts):
+            tokens.append(
+                Token(
+                    part,
+                    word.start,
+                    raw=word.text,
+                    last=k == len(parts) - 1,
+                    joined=len(parts) > 1 and "-" in word.text,
+                    probability=word.probability,
+                )
+            )
+    return tokens
+
+
+def _is_number(token: Token) -> bool:
+    return token.word.isdigit() or token.word in UNITS or token.word in TENS
+
+
+def _ends_with_comma(token: Token) -> bool:
+    return token.last and token.raw.rstrip().endswith(",")
+
+
+def _filler_like(tokens: list[Token], i: int) -> bool:
+    token = tokens[i]
+    if token.word != "like" or token.joined:
+        return False
+    prev = tokens[i - 1].word if i > 0 else ""
+    if prev in NOT_FILLER_BEFORE_LIKE:
+        return False
+    if _ends_with_comma(token) or prev in BE_FORMS or prev in APPROX_WORDS:
+        return True
+    return i + 1 < len(tokens) and _is_number(tokens[i + 1])
+
+
+def _filler_kind_of(tokens: list[Token], i: int) -> bool:
+    if i + 1 >= len(tokens) or tokens[i + 1].word != "of":
+        return False
+    if tokens[i].word not in {"kind", "sort"}:
+        return False
+    return i == 0 or tokens[i - 1].word not in KIND_DETERMINERS
+
+
+def _filler_so(tokens: list[Token], i: int) -> bool:
+    if tokens[i].word != "so" or not _ends_with_comma(tokens[i]):
+        return False
+    return i == 0 or bool(_SENTENCE_END.search(tokens[i - 1].raw.rstrip()))
 
 
 def find_fillers(tokens: list[Token]) -> tuple[list[dict[str, Any]], set[int]]:
@@ -74,12 +163,12 @@ def find_fillers(tokens: list[Token]) -> tuple[list[dict[str, Any]], set[int]]:
     i = 0
     while i < len(tokens):
         pair = (tokens[i].word, tokens[i + 1].word) if i + 1 < len(tokens) else None
-        if pair in FILLER_PHRASES:
+        if pair in FILLER_PHRASES or _filler_kind_of(tokens, i):
             fillers.append({"word": " ".join(pair), "time_s": _round(tokens[i].start)})
             used.update({i, i + 1})
             i += 2
             continue
-        if tokens[i].word in FILLER_WORDS:
+        if tokens[i].word in FILLER_WORDS or _filler_like(tokens, i) or _filler_so(tokens, i):
             fillers.append({"word": tokens[i].word, "time_s": _round(tokens[i].start)})
             used.add(i)
         i += 1
@@ -161,9 +250,84 @@ def pace_windows(words: list[Word], duration_s: float) -> list[dict[str, float]]
     return windows
 
 
+def _number_value(tokens: list[Token], i: int) -> tuple[int, int] | None:
+    """Parse spelled-out number words from tokens[i]; return (value, next index) or None."""
+    total = current = 0
+    j = i
+    last = None  # kind of the previous number word, so "one two" isn't read as 3
+    while j < len(tokens):
+        word = tokens[j].word
+        if word in UNITS and last not in {"unit", "teen"}:
+            current += UNITS[word]
+            last = "teen" if UNITS[word] >= 10 else "unit"
+        elif word in TENS and last in {None, "scale"}:
+            current += TENS[word]
+            last = "tens"
+        elif word in SCALES and last is not None and last != "scale":
+            if SCALES[word] == 100:
+                current *= 100
+            else:
+                total += current * SCALES[word]
+                current = 0
+            last = "scale"
+        elif word == "and" and last == "scale" and j + 1 < len(tokens):
+            following = tokens[j + 1].word
+            if following not in UNITS and following not in TENS:
+                break
+        else:
+            break
+        j += 1
+    if last is None:
+        return None
+    return total + current, j
+
+
+def canonicalise(tokens: list[Token]) -> list[Token]:
+    """Numbers as digits so spoken and written forms compare equal; "40%" = "forty percent"."""
+    out: list[Token] = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        parsed = _number_value(tokens, i)
+        if parsed is not None:
+            value, j = parsed
+            word, display = str(value), " ".join(t.word for t in tokens[i:j])
+        elif token.word.isdigit():
+            word, j = token.word, i + 1
+            display = token.raw.strip(" ,.;:!?") or token.word
+        else:
+            out.append(token)
+            i += 1
+            continue
+        percent = "%" in tokens[j - 1].raw
+        if not percent and j < len(tokens) and tokens[j].word == "percent":
+            percent, display, j = True, f"{display} percent", j + 1
+        out.append(
+            Token(
+                word + ("%" if percent else ""),
+                token.start,
+                raw=token.raw,
+                probability=token.probability,
+                display=display,
+            )
+        )
+        i = j
+    return out
+
+
+def reference_tokens(reference: str) -> list[Token]:
+    return canonicalise([Token(w, raw=w) for w in normalise(reference)])
+
+
+def _shown(tokens: list[Token]) -> str:
+    return " ".join(t.shown for t in tokens)
+
+
 def compare_to_reference(reference: str, spoken: list[Token]) -> dict[str, Any]:
     """Align spoken words with the reference text and list the differences."""
-    ref = normalise(reference)
+    ref_tokens = reference_tokens(reference)
+    spoken = canonicalise(spoken)
+    ref = [t.word for t in ref_tokens]
     said = [t.word for t in spoken]
     matcher = SequenceMatcher(a=ref, b=said, autojunk=False)
     missed: list[dict[str, Any]] = []
@@ -171,17 +335,18 @@ def compare_to_reference(reference: str, spoken: list[Token]) -> dict[str, Any]:
     extra: list[dict[str, Any]] = []
     for op, i1, i2, j1, j2 in matcher.get_opcodes():
         if op == "delete":
-            missed.append({"expected": " ".join(ref[i1:i2]), "position": i1 + 1})
+            missed.append({"expected": _shown(ref_tokens[i1:i2]), "position": i1 + 1})
         elif op == "replace":
             different.append(
                 {
-                    "expected": " ".join(ref[i1:i2]),
-                    "heard": " ".join(said[j1:j2]),
+                    "expected": _shown(ref_tokens[i1:i2]),
+                    "heard": _shown(spoken[j1:j2]),
                     "time_s": _round(spoken[j1].start),
+                    "position": i1 + 1,
                 }
             )
         elif op == "insert":
-            extra.append({"heard": " ".join(said[j1:j2]), "time_s": _round(spoken[j1].start)})
+            extra.append({"heard": _shown(spoken[j1:j2]), "time_s": _round(spoken[j1].start)})
     matched = sum(block.size for block in matcher.get_matching_blocks())
     last_matched = max(
         (block.a + block.size for block in matcher.get_matching_blocks() if block.size), default=0
@@ -194,6 +359,49 @@ def compare_to_reference(reference: str, spoken: list[Token]) -> dict[str, Any]:
         "different": different,
         "extra": extra,
     }
+
+
+def word_clarity(reference: str, spoken: list[Token]) -> list[dict[str, Any]]:
+    """Per listed word: clear, unclear (low confidence), misheard or missed."""
+    ref_tokens = reference_tokens(reference)
+    spoken = canonicalise(spoken)
+    matcher = SequenceMatcher(
+        a=[t.word for t in ref_tokens], b=[t.word for t in spoken], autojunk=False
+    )
+    rows: list[dict[str, Any]] = []
+    for op, i1, i2, j1, j2 in matcher.get_opcodes():
+        if op == "insert":
+            continue
+        for k in range(i1, i2):
+            row: dict[str, Any] = {
+                "word": ref_tokens[k].shown,
+                "heard": None,
+                "time_s": None,
+                "confidence": None,
+            }
+            if op == "equal":
+                token = spoken[j1 + k - i1]
+                confidence = token.probability
+                clear = confidence is None or confidence >= CLEAR_CONFIDENCE
+                row.update(
+                    heard=token.shown,
+                    time_s=_round(token.start),
+                    confidence=None if confidence is None else round(confidence, 2),
+                    status="clear" if clear else "unclear",
+                )
+            elif op == "replace" and j1 + k - i1 < j2:
+                # pair listed and heard words one to one; the last listed word of the block
+                # takes any extra heard words ("databricks" -> "data bricks")
+                end = j2 if k == i2 - 1 else j1 + k - i1 + 1
+                row.update(
+                    heard=_shown(spoken[j1 + k - i1 : end]),
+                    time_s=_round(spoken[j1 + k - i1].start),
+                    status="misheard",
+                )
+            else:
+                row["status"] = "missed"
+            rows.append(row)
+    return rows
 
 
 def coverage_warning(task: Task, comparison: dict[str, Any]) -> str | None:
@@ -252,6 +460,11 @@ def compute_metrics(task: Task, transcript: Transcript, duration_s: float) -> An
         details["comparison"] = comparison
         if warning := coverage_warning(task, comparison):
             details["warnings"].append(warning)
+        if is_word_list(task):
+            clarity = word_clarity(task.reference_text, spoken)
+            details["word_clarity"] = clarity
+            clear = sum(row["status"] == "clear" for row in clarity)
+            metrics["clear_words_pct"] = round(100 * clear / len(clarity), 1) if clarity else 0.0
     return Analysis(metrics=metrics, details=details)
 
 
@@ -270,6 +483,7 @@ METRIC_UNITS = {
     "mid_phrase_hesitations": "pauses",
     "longest_stretch_s": "s",
     "reference_coverage": "fraction",
+    "clear_words_pct": "%",
     "pitch_range_st": "st",
     "falling_endings_pct": "%",
     "trailing_off_count": "sentences",

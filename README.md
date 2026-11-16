@@ -9,8 +9,11 @@ The app converts it to 16 kHz mono WAV, transcribes it with
 reference words spoken). It also measures the voice with Praat
 ([praat-parselmouth](https://github.com/YannickJadoul/Parselmouth)): pitch contour, falling,
 flat or rising sentence endings, pitch range (flagged as monotone under 5 semitones) and
-sentences that trail off in volume. Each session ends with a downloadable report and
-metrics JSON.
+sentences that trail off in volume (the word list instead gets a per-word clarity
+rating). Each session ends with a downloadable report and metrics JSON, plus a list of
+"repeat offenders": reference phrases mis-transcribed in two or more sessions. Locally
+these come from the saved history; in cloud mode, upload earlier metrics JSON files on the
+summary page.
 
 The in-browser recorder asks for the raw microphone signal, with echo cancellation, noise
 suppression and auto gain control off, because those filters flatten loudness and can

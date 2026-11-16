@@ -170,3 +170,46 @@ def test_voice_failure_shows_a_warning():
     assert not at.exception
     assert any("Voice analysis failed" in w.value for w in at.warning)
     assert "retake_read_aloud" not in [b.key for b in at.button]
+
+
+def test_summary_shows_repeat_offenders_section():
+    at = run_app()
+    at.button[0].click().run()
+    at.session_state.page = 6
+    at.run()
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown)
+    assert "Repeat offenders" in text
+    assert any("Repeat offenders are checked across" in c.value for c in at.caption)
+
+
+def test_word_list_result_shows_clarity_table():
+    at = run_app()
+    at.button[0].click().run()
+    at.session_state.results = {
+        "word_list": TakeResult(
+            task_id="word_list",
+            source="mic",
+            duration_s=20.0,
+            transcript="architecture",
+            metrics={"duration_s": 20.0, "clear_words_pct": 100.0},
+            details={
+                "warnings": [],
+                "word_clarity": [
+                    {
+                        "word": "architecture",
+                        "heard": "architecture",
+                        "time_s": 1.0,
+                        "confidence": 0.9,
+                        "status": "clear",
+                    }
+                ],
+            },
+        )
+    }
+    at.session_state.page = 2
+    at.run()
+    assert not at.exception
+    text = " ".join(m.value for m in at.markdown)
+    assert "Word clarity" in text and "| architecture | clear |" in text
+    assert "Voice analysis" not in text and not at.warning
