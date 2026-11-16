@@ -10,7 +10,7 @@ from typing import Any
 import audio
 import config
 import storage
-from analysis import METRIC_UNITS, compute_metrics
+from analysis import METRIC_UNITS, compute_metrics, is_word_list
 from speech_model import Word, detect_speech, transcribe
 from tasks import Task
 from voice_analysis import analyse_voice, voice_metrics
@@ -69,9 +69,11 @@ def process_take(
         transcript.speech_segments = detect_speech(wav)
         analysis = compute_metrics(task, transcript, duration)
         analysis.details["recording"] = recording
-        voice, contour = run_voice_analysis(wav, transcript.words, task.id)
-        analysis.details["voice"] = voice
-        analysis.metrics.update(voice_metrics(voice))
+        contour: list[tuple[float, float]] = []
+        if not is_word_list(task):  # a list has no sentences; word clarity covers it instead
+            voice, contour = run_voice_analysis(wav, transcript.words, task.id)
+            analysis.details["voice"] = voice
+            analysis.metrics.update(voice_metrics(voice))
         result = TakeResult(
             task_id=task.id,
             source=source,

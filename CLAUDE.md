@@ -36,10 +36,15 @@ Speech coach project. Repo: https://github.com/Suhasv1982/speech-coach
 - `speech_model.py` – loads faster-whisper (lazy import); `transcribe()` returns a `Transcript`
   with timed words (a filler-laden `initial_prompt` keeps "um"/"uh"); `detect_speech()` runs
   silero VAD on the audio for pause measurement (Whisper word timings stretch over silences)
-- `analysis.py` – metrics: pace, fillers (+ timestamps), pauses > 0.5/1.5 s, mid-phrase
+- `analysis.py` – metrics: pace, fillers (+ timestamps; "like", "kind of"/"sort of" and
+  sentence-opening "So," only in filler positions), pauses > 0.5/1.5 s, mid-phrase
   hesitations (not for word lists), longest unbroken stretch, 30 s pace windows, and for
-  scripted tasks a difflib word comparison with the reference (pronunciation clues) and a
-  `min_coverage` warning (word list: 80%)
+  scripted tasks a difflib word comparison with the reference (pronunciation clues; numbers
+  compared by value via `canonicalise`, "forty percent" = "40%") and a `min_coverage` warning
+  (word list: 80%). Word list: per-word clarity (Whisper word probability, clear ≥ 0.6)
+  instead of sentence/voice analysis
+- `history.py` – repeat offenders: reference phrases mis-transcribed in 2+ sessions, from
+  SQLite (local) plus uploaded metrics JSON reports (either mode)
 - `voice_analysis.py` – Praat (praat-parselmouth, lazy import) on the 16 kHz WAV: pitch contour
   (`PITCH_FLOOR_HZ`/`PITCH_CEILING_HZ`, default 75–300), sentence endings falling/flat/rising
   (±1 st over the last ~400 ms), pitch range p10–p90 (monotone < 5 st), trailing off (last word

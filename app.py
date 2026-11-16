@@ -1,5 +1,6 @@
 """Speech Coach: record or upload an answer for each assessment task, then analyse it."""
 
+import json
 import logging
 import shutil
 import tempfile
@@ -13,6 +14,7 @@ import streamlit as st
 
 import audio
 import config
+import history
 import recorder
 import speech_model
 import storage
@@ -20,9 +22,11 @@ from pipeline import TakeResult, process_take
 from report import (
     build_json,
     build_markdown,
+    clarity_lines,
     comparison_lines,
     filler_line,
     format_metric,
+    offender_lines,
     pace_line,
     voice_lines,
 )
@@ -255,7 +259,10 @@ def show_result(task: Task, result: TakeResult) -> None:
         st.markdown(f"**Fillers heard:** {filler_line(details['fillers'])}")
     if "comparison" in details:
         st.markdown("\n".join(comparison_lines(details["comparison"])))
-    show_voice(result)
+    if "word_clarity" in details:
+        st.markdown("\n".join(clarity_lines(details["word_clarity"])))
+    else:
+        show_voice(result)
 
     st.markdown("**Transcript**")
     st.write(result.transcript or "_No speech detected._")
@@ -306,6 +313,35 @@ def task_page(index: int, task: Task) -> None:
     )
 
 
+def session_history(session_id: str, results: dict) -> list[dict]:
+    """Repeat offenders across this session, saved sessions (local) and uploaded reports."""
+    current = {
+        task_id: result.details["comparison"]
+        for task_id, result in results.items()
+        if result.details.get("comparison")
+    }
+    sources: list[history.Comparisons] = [{session_id: current} if current else {}]
+    if not CLOUD:
+        with closing(storage.connect()) as conn:
+            sources.append(history.comparisons_from_db(conn))
+    uploads = st.file_uploader(
+        "Add earlier metrics reports (.json) to find repeat offenders",
+        type=["json"],
+        accept_multiple_files=True,
+        key="history_uploads",
+        help="The 'Download metrics (.json)' files from earlier sessions. "
+        "They are only read in memory, never stored.",
+    )
+    for upload in uploads or []:
+        try:
+            sources.append(history.comparisons_from_report(json.loads(upload.getvalue())))
+        except (ValueError, AttributeError, TypeError):
+            st.warning(f"{upload.name} is not a Speech Coach metrics report, so it was skipped.")
+    sessions = history.merge(*sources)
+    st.caption(f"Repeat offenders are checked across {len(sessions)} session(s).")
+    return history.repeat_offenders(sessions, TASKS)
+
+
 def summary_page() -> None:
     session_id = st.session_state.session_id
     results = st.session_state.results
@@ -321,8 +357,12 @@ def summary_page() -> None:
         else:
             st.write(f"⬜ **{task.title}**: not recorded")
 
-    report_md = build_markdown(session_id, TASKS, results)
-    metrics_json = build_json(session_id, TASKS, results)
+    offenders = session_history(session_id, results)
+    st.markdown("\n".join(offender_lines(offenders, {t.id: t.title for t in TASKS})))
+
+    mode = "cloud" if CLOUD else "local"
+    report_md = build_markdown(session_id, TASKS, results, mode=mode, offenders=offenders)
+    metrics_json = build_json(session_id, TASKS, results, mode=mode, offenders=offenders)
     if not CLOUD:
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         (config.REPORTS_DIR / f"{session_id}.md").write_text(report_md, encoding="utf-8")

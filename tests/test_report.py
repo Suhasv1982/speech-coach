@@ -255,3 +255,82 @@ def test_markdown_says_when_there_are_no_sentences():
     result = TakeResult(**{**vars(RESULTS["read_aloud"]), "details": {**DETAILS, "voice": voice}})
     report = build_markdown("s1", TASKS, {"read_aloud": result})
     assert "No sentences in the transcript" in report
+
+
+CLARITY = [
+    {
+        "word": "architecture",
+        "heard": "architecture",
+        "time_s": 1.0,
+        "confidence": 0.95,
+        "status": "clear",
+    },
+    {
+        "word": "analytics",
+        "heard": "analytics",
+        "time_s": 2.5,
+        "confidence": 0.42,
+        "status": "unclear",
+    },
+    {
+        "word": "databricks",
+        "heard": "data bricks",
+        "time_s": 15.4,
+        "confidence": None,
+        "status": "misheard",
+    },
+    {"word": "azure", "heard": None, "time_s": None, "confidence": None, "status": "missed"},
+]
+
+
+def word_list_result():
+    return TakeResult(
+        **{
+            **vars(RESULTS["word_list"]),
+            "details": {"warnings": [], "word_clarity": CLARITY},
+            "metrics": {"duration_s": 20.0, "clear_words_pct": 25.0},
+        }
+    )
+
+
+def test_word_list_shows_clarity_instead_of_voice():
+    report = build_markdown("s1", TASKS, {"word_list": word_list_result()})
+    section = report.split("## Word list")[1].split("## ")[0]
+    assert "**Word clarity**" in section
+    assert "| architecture | clear |  | 0:01.0 | 95% |" in section
+    assert "| analytics | unclear |  | 0:02.5 | 42% |" in section
+    assert "| databricks | misheard | data bricks | 0:15.4 | – |" in section
+    assert "| azure | missed |  | – | – |" in section
+    assert "**Clear words:** 25%" in section
+    assert "Voice" not in section and "Sentence endings" not in section
+
+
+OFFENDERS = [
+    {
+        "task_id": "word_list",
+        "phrase": "databricks",
+        "sessions": 2,
+        "heard": [
+            {"session_id": "a", "heard": "data bricks"},
+            {"session_id": "b", "heard": "database"},
+        ],
+    }
+]
+
+
+def test_repeat_offenders_section_and_json():
+    report = build_markdown("s1", TASKS, RESULTS, offenders=OFFENDERS)
+    assert "## Repeat offenders" in report
+    assert "| databricks | Word list | 2 | “data bricks”; “database” |" in report
+    data = json.loads(build_json("s1", TASKS, RESULTS, offenders=OFFENDERS))
+    assert data["repeat_offenders"] == OFFENDERS
+    empty = build_markdown("s1", TASKS, RESULTS, offenders=[])
+    assert "No phrase was mis-transcribed in two or more saved sessions" in empty
+
+
+def test_header_says_which_mode_chose_the_model():
+    cloud = build_markdown("s1", TASKS, RESULTS, mode="cloud")
+    assert "Speech model: small.en (int8) (cloud practice mode" in cloud
+    assert "local runs use medium.en" in cloud
+    assert json.loads(build_json("s1", TASKS, RESULTS, mode="cloud"))["mode"] == "cloud"
+    assert "(local mode)" in build_markdown("s1", TASKS, RESULTS, mode="local")
